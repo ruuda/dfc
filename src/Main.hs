@@ -64,6 +64,7 @@ data Expr a where
   Add    :: [Term Int]    -> Expr Int
   Sub    :: [Term Int]    -> Expr Int
   Load   :: Field a       -> Expr a
+  Select :: Term Bool -> Term a -> Term a -> Expr a
 
 deriving instance Eq (Expr a)
 
@@ -78,6 +79,7 @@ instance Show (Expr a) where
       Add args    -> display "add" args
       Sub args    -> display "sub" args
       Load field  -> display "load" [field]
+      Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
 data Instr where
   Define :: Variable a -> Expr a -> Instr
@@ -101,6 +103,7 @@ main =
       , Define (Variable 4) (Load (Field "name" :: Field String))
       , Define (Variable 5) (Load (Field "title" :: Field String))
       , Define (Variable 6) (Concat [Var (Variable 5), CString " ", Var (Variable 4)])
+      , Define (Variable 7) (Select (Var (Variable 1)) (CString "true") (Var $ Variable 6))
       , Yield
       ]
   in do
