@@ -66,6 +66,7 @@ instance Show (Field a) where
   show (Field name) = show name
 
 data Expr a where
+  Not    :: Term Bool     -> Expr Bool
   And    :: [Term Bool]   -> Expr Bool
   Or     :: [Term Bool]   -> Expr Bool
   Concat :: [Term String] -> Expr String
@@ -81,6 +82,7 @@ instance Show (Expr a) where
     let
       display prefix args = prefix ++ " " ++ (intercalate " " $ fmap show args)
     in case op of
+      Not arg     -> display "not" [arg]
       And args    -> display "and" args
       Or args     -> display "or" args
       Concat args -> display "concat" args
@@ -94,7 +96,7 @@ data Some f = forall a. Some (f a)
 data Program a b = Program
   { programInput :: Variable a
   , programBindings :: !(IntMap (Some Expr))
-  , programDiscards :: ![Term Bool]
+  , programCondition :: !(Term Bool)
   , programYield :: !(Term b)
   }
 
@@ -104,19 +106,16 @@ instance Show (Program a b) where
       showBinding :: (Int, Some Expr) -> String
       showBinding (k, Some v) = (show $ Variable k) ++ " = " ++ (show v)
       bindings = fmap showBinding $ IntMap.toList $ programBindings p
-      discards = fmap (("discardIf " ++) . show) $ programDiscards p
     in
-      intercalate "\n" $
-        [ "input " ++ (show $ programInput p)
-        ] ++ bindings ++ discards ++
-        [ "yield " ++ (show $ programYield p)
-        ]
+      "input " ++ (show $ programInput p) ++ "\n" ++
+      intercalate "\n" bindings ++ "\n" ++
+      "yield " ++ (show $ programYield p) ++ " if " ++ (show $ programCondition p)
 
 data GenProgram i = GenProgram
   { genInput :: Variable i
   , genFresh :: !Int
   , genBindings :: !(IntMap (Some Expr))
-  , genDiscards :: ![Term Bool]
+  , genCondition :: !(Term Bool)
   }
 
 newtype Gen i a = Gen
@@ -146,14 +145,14 @@ genProgram gen =
       { genInput = Variable 0
       , genFresh = 1
       , genBindings = IntMap.empty
-      , genDiscards = []
+      , genCondition = CTrue
       }
     (finalValue, finalState) = runGen gen initial
   in
     Program
       { programInput = genInput finalState
       , programBindings = genBindings finalState
-      , programDiscards = genDiscards finalState
+      , programCondition = genCondition finalState
       , programYield = finalValue
       }
 
@@ -172,6 +171,19 @@ define expr = Gen $ \state ->
 loadInput :: Gen i (Term i)
 loadInput = Gen $ \state -> (Var $ genInput state, state)
 
+setCondition :: Term Bool -> Gen i ()
+setCondition cond = Gen $ \state -> ((), state { genCondition = cond })
+
+getCondition :: Gen i (Term Bool)
+getCondition = Gen $ \state -> (genCondition state, state)
+
+discardIf :: Term Bool -> Gen i ()
+discardIf cond = do
+  oldCond <- getCondition
+  keepIf <- define $ Not cond
+  newCond <- define $ And [oldCond, keepIf]
+  setCondition newCond
+
 program :: Program String String
 program = genProgram $ do
   input <- loadInput
@@ -181,9 +193,11 @@ program = genProgram $ do
   d <- define $ Add [a, CInt 0, CInt 7]
   name <- define $ Load (Field "name" :: Field String)
   title <- define $ Load (Field "title" :: Field String)
+  discardIf c
   cat <- define $ Concat [name, CString " ", title]
   cat2 <- define $ Concat [cat, input]
   newName <- define $ Select b (CString "true") cat
+  discardIf b
   pure newName
 
 main :: IO ()
