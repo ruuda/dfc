@@ -1,23 +1,29 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
-data Variable
+data Variable a where
   -- A variable is identified by its sequence number.
-  = Variable Int
+  Variable :: Int -> Variable a
   deriving (Eq)
 
-instance Show Variable where
+instance Show (Variable a) where
   show (Variable i) = '$' : show i
 
-data Value
-  = VString String
-  | VInt Integer
-  | VBool Bool
-  deriving (Eq, Show)
+data Value a where
+  VString :: String -> Value String
+  VInt    :: Int    -> Value Int
+  VBool   :: Bool   -> Value Bool
 
-data Operand
-  = Var Variable
-  | Const Value
-  deriving (Eq, Show)
+deriving instance Eq (Value a)
+deriving instance Show (Value a)
+
+data Operand a where
+  Var   :: Variable a -> Operand a
+  Const :: Value a    -> Operand a
+
+deriving instance Eq (Operand a)
+deriving instance Show (Operand a)
 
 pattern CString str = Const (VString str)
 pattern CInt i = Const (VInt i)
@@ -25,11 +31,11 @@ pattern CTrue = Const (VBool True)
 pattern CFalse = Const (VBool False)
 
 data Operation
-  = And [Operand]
-  | Or [Operand]
-  | Concat [Operand]
-  | Add [Operand]
-  | Sub [Operand]
+  = And [Operand Bool]
+  | Or [Operand Bool]
+  | Concat [Operand String]
+  | Add [Operand Int]
+  | Sub [Operand Int]
   deriving (Eq, Show)
 
 main :: IO ()
