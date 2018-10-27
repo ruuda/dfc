@@ -1,3 +1,9 @@
 name: dataflow
 version: 0.0.0
 synopsis: optimizing dataflow compiler
+
+executable:
+  name: dataflow
+  main: src/Main.hs
+  dependencies:
+    - base
