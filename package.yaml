@@ -11,6 +11,7 @@ default-extensions:
   - GADTs
   - PatternSynonyms
   - StandaloneDeriving
+  - RankNTypes
 
 executable:
   main: Main.hs

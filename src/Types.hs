@@ -4,9 +4,11 @@ module Types
   , Term (..)
   , Field (..)
   , Expr (..)
+  , mapTerms
   , Bindings
   , newBindings
   , bind
+  , mapBindings
   ) where
 
 import Data.List (intercalate)
@@ -87,6 +89,17 @@ instance Show (Expr a) where
       Load field  -> display "load" [field]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
+mapTerms :: (forall a. Term a -> Term a) -> Expr b -> Expr b
+mapTerms f expr = case expr of
+  Not arg     -> Not $ f arg
+  And args    -> And $ fmap f args
+  Or args     -> Or $ fmap f args
+  Concat args -> Concat $ fmap f args
+  Add args    -> Add $ fmap f args
+  Sub args    -> Sub $ fmap f args
+  Load field  -> Load field
+  Select cond vtrue vfalse -> Select (f cond) (f vtrue) (f vfalse)
+
 data Some f = forall a. Some (f a)
 
 -- Tracks bindings, and the counter for the next fresh variable.
@@ -108,3 +121,12 @@ newBindings = (Variable 0, Bindings 1 IntMap.empty)
 
 bind :: Expr a -> Bindings -> (Variable a, Bindings)
 bind expr (Bindings i b) = (Variable i, Bindings (i + 1) (IntMap.insert i (Some expr) b))
+
+mapBindings :: (forall a. Expr a -> Expr a) -> Bindings -> Bindings
+mapBindings f (Bindings i b) = Bindings i $ fmap (\(Some x) -> Some (f x)) b
+
+inspect :: Variable a -> Bindings -> Some Expr
+inspect (Variable i) (Bindings _ b) =
+  case IntMap.lookup i b of
+    Just expr -> expr
+    Nothing -> error "Programming error: looking up unbound variable."
