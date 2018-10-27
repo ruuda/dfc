@@ -89,7 +89,11 @@ instance Show (Expr a) where
 
 data Some f = forall a. Some (f a)
 
-data Bindings = Bindings !Int !(IntMap (Some Expr))
+-- Tracks bindings, and the counter for the next fresh variable.
+data Bindings = Bindings
+  { bindingsFresh :: !Int
+  , bindingsBindings :: !(IntMap (Some Expr))
+  }
 
 instance Show Bindings where
   show (Bindings _ b) =
