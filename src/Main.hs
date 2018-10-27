@@ -1,12 +1,17 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 import Control.Monad (mapM_)
+import Data.IntMap (IntMap)
 import Data.List (intercalate)
+
+import qualified Data.IntMap as IntMap
 
 data Variable a where
   -- A variable is identified by its sequence number.
@@ -84,27 +89,41 @@ instance Show (Expr a) where
       Load field  -> display "load" [field]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
-data Instr where
-  Define :: Variable a -> Expr a -> Instr
-  Yield :: Instr
+data Some f = forall a. Some (f a)
 
---deriving instance Eq Instr
-
-instance Show Instr where
-  show instr = case instr of
-    Define var expr -> (show var) ++ " = " ++ (show expr)
-    Yield -> "yield"
-
-data GenState = GenState
-  { genStateFresh :: !Int
-  , genStateInstrs :: ![Instr]
+data Program a b = Program
+  { programInput :: Variable a
+  , programBindings :: !(IntMap (Some Expr))
+  , programDiscards :: ![Term Bool]
+  , programYield :: !(Term b)
   }
 
-newtype Gen a = Gen
-  { runGen :: GenState -> (a, GenState)
+instance Show (Program a b) where
+  show p =
+    let
+      showBinding :: (Int, Some Expr) -> String
+      showBinding (k, Some v) = (show $ Variable k) ++ " = " ++ (show v)
+      bindings = fmap showBinding $ IntMap.toList $ programBindings p
+      discards = fmap (("discardIf " ++) . show) $ programDiscards p
+    in
+      intercalate "\n" $
+        [ "input " ++ (show $ programInput p)
+        ] ++ bindings ++ discards ++
+        [ "yield " ++ (show $ programYield p)
+        ]
+
+data GenProgram i = GenProgram
+  { genInput :: Variable i
+  , genFresh :: !Int
+  , genBindings :: !(IntMap (Some Expr))
+  , genDiscards :: ![Term Bool]
+  }
+
+newtype Gen i a = Gen
+  { runGen :: GenProgram i -> (a, GenProgram i)
   } deriving Functor
 
-instance Applicative Gen where
+instance Applicative (Gen i) where
   pure x = Gen $ \state -> (x, state)
   genF <*> genV = Gen $ \state ->
     let
@@ -113,47 +132,60 @@ instance Applicative Gen where
     in
       (f v, state'')
 
-instance Monad Gen where
+instance Monad (Gen i) where
   genV >>= f = Gen $ \state ->
     let
       (v, state') = runGen genV state
     in
       runGen (f v) state'
 
-runGenFull :: Gen () -> [Instr]
-runGenFull gen =
-  let ((), GenState _ instrs) = runGen gen (GenState 0 []) in reverse instrs
+genProgram :: Gen a (Term b) -> Program a b
+genProgram gen =
+  let
+    initial = GenProgram
+      { genInput = Variable 0
+      , genFresh = 1
+      , genBindings = IntMap.empty
+      , genDiscards = []
+      }
+    (finalValue, finalState) = runGen gen initial
+  in
+    Program
+      { programInput = genInput finalState
+      , programBindings = genBindings finalState
+      , programDiscards = genDiscards finalState
+      , programYield = finalValue
+      }
 
-define :: Expr a -> Gen (Variable a)
+define :: Expr a -> Gen i (Term a)
 define expr = Gen $ \state ->
   let
-    i = genStateFresh state
-    state' = GenState
-      { genStateFresh = i + 1
-      , genStateInstrs = Define (Variable i) expr : genStateInstrs state
+    k = genFresh state
+    bindings = genBindings state
+    state' = state
+      { genFresh = k + 1
+      , genBindings = IntMap.insert k (Some expr) bindings
       }
   in
-    (Variable i, state')
+    (Var $ Variable k, state')
 
-yield :: Gen ()
-yield = Gen $ \state ->
-  let
-    state' = state { genStateInstrs = Yield : genStateInstrs state }
-  in
-    ((), state')
+loadInput :: Gen i (Term i)
+loadInput = Gen $ \state -> (Var $ genInput state, state)
 
-program :: Gen ()
-program = do
+program :: Program String String
+program = genProgram $ do
+  input <- loadInput
   a <- define $ Add [CInt 0, CInt 1, CInt 2]
   b <- define $ And [CTrue, CTrue, CFalse]
-  c <- define $ Or [Var b, CTrue, CFalse]
-  d <- define $ Add [Var a, CInt 0, CInt 7]
+  c <- define $ Or [b, CTrue, CFalse]
+  d <- define $ Add [a, CInt 0, CInt 7]
   name <- define $ Load (Field "name" :: Field String)
   title <- define $ Load (Field "title" :: Field String)
-  cat <- define $ Concat [Var name, CString " ", Var title]
-  newName <- define $ Select (Var b) (CString "true") (Var cat)
-  yield
+  cat <- define $ Concat [name, CString " ", title]
+  cat2 <- define $ Concat [cat, input]
+  newName <- define $ Select b (CString "true") cat
+  pure newName
 
 main :: IO ()
 main =
-  mapM_ (putStrLn . show) (runGenFull program)
+  putStrLn $ show program

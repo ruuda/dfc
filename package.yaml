@@ -7,3 +7,4 @@ executable:
   main: src/Main.hs
   dependencies:
     - base
+    - containers
