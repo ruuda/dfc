@@ -1,3 +1,6 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -92,19 +95,65 @@ instance Show Instr where
     Define var expr -> (show var) ++ " = " ++ (show expr)
     Yield -> "yield"
 
+data GenState = GenState
+  { genStateFresh :: !Int
+  , genStateInstrs :: ![Instr]
+  }
+
+newtype Gen a = Gen
+  { runGen :: GenState -> (a, GenState)
+  } deriving Functor
+
+instance Applicative Gen where
+  pure x = Gen $ \state -> (x, state)
+  genF <*> genV = Gen $ \state ->
+    let
+      (f, state') = runGen genF state
+      (v, state'') = runGen genV state'
+    in
+      (f v, state'')
+
+instance Monad Gen where
+  genV >>= f = Gen $ \state ->
+    let
+      (v, state') = runGen genV state
+    in
+      runGen (f v) state'
+
+runGenFull :: Gen () -> [Instr]
+runGenFull gen =
+  let ((), GenState _ instrs) = runGen gen (GenState 0 []) in reverse instrs
+
+define :: Expr a -> Gen (Variable a)
+define expr = Gen $ \state ->
+  let
+    i = genStateFresh state
+    state' = GenState
+      { genStateFresh = i + 1
+      , genStateInstrs = Define (Variable i) expr : genStateInstrs state
+      }
+  in
+    (Variable i, state')
+
+yield :: Gen ()
+yield = Gen $ \state ->
+  let
+    state' = state { genStateInstrs = Yield : genStateInstrs state }
+  in
+    ((), state')
+
+program :: Gen ()
+program = do
+  a <- define $ Add [CInt 0, CInt 1, CInt 2]
+  b <- define $ And [CTrue, CTrue, CFalse]
+  c <- define $ Or [Var b, CTrue, CFalse]
+  d <- define $ Add [Var a, CInt 0, CInt 7]
+  name <- define $ Load (Field "name" :: Field String)
+  title <- define $ Load (Field "title" :: Field String)
+  cat <- define $ Concat [Var name, CString " ", Var title]
+  newName <- define $ Select (Var b) (CString "true") (Var cat)
+  yield
+
 main :: IO ()
 main =
-  let
-    ops =
-      [ Define (Variable 0) (Add [CInt 0, CInt 1, CInt 2])
-      , Define (Variable 1) (And [CTrue, CTrue, Var (Variable 0)])
-      , Define (Variable 2) (Or [Var (Variable 0), Var (Variable 1), Var (Variable 2)])
-      , Define (Variable 3) (Add [Var (Variable 2), Var (Variable 3), Var (Variable 4)])
-      , Define (Variable 4) (Load (Field "name" :: Field String))
-      , Define (Variable 5) (Load (Field "title" :: Field String))
-      , Define (Variable 6) (Concat [Var (Variable 5), CString " ", Var (Variable 4)])
-      , Define (Variable 7) (Select (Var (Variable 1)) (CString "true") (Var $ Variable 6))
-      , Yield
-      ]
-  in do
-    mapM_ (putStrLn . show) ops
+  mapM_ (putStrLn . show) (runGenFull program)
