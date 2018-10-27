@@ -13,7 +13,6 @@ default-extensions:
   - StandaloneDeriving
 
 executable:
-  name: dataflow
   main: Main.hs
   source-dirs: src
   dependencies:
