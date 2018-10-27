@@ -2,9 +2,20 @@ name: dataflow
 version: 0.0.0
 synopsis: optimizing dataflow compiler
 
+default-extensions:
+  - ApplicativeDo
+  - BangPatterns
+  - DeriveFunctor
+  - ExistentialQuantification
+  - FlexibleInstances
+  - GADTs
+  - PatternSynonyms
+  - StandaloneDeriving
+
 executable:
   name: dataflow
-  main: src/Main.hs
+  main: Main.hs
+  source-dirs: src
   dependencies:
     - base
     - containers
