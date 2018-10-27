@@ -48,12 +48,22 @@ pattern CInt i = Const (ValInt i)
 pattern CTrue = Const (ValBool True)
 pattern CFalse = Const (ValBool False)
 
+-- A named field.
+data Field a where
+  Field :: String -> Field a
+
+deriving instance Eq (Field a)
+
+instance Show (Field a) where
+  show (Field name) = show name
+
 data Expr a where
   And    :: [Term Bool]   -> Expr Bool
   Or     :: [Term Bool]   -> Expr Bool
   Concat :: [Term String] -> Expr String
   Add    :: [Term Int]    -> Expr Int
   Sub    :: [Term Int]    -> Expr Int
+  Load   :: Field a       -> Expr a
 
 deriving instance Eq (Expr a)
 
@@ -67,6 +77,7 @@ instance Show (Expr a) where
       Concat args -> display "concat" args
       Add args    -> display "add" args
       Sub args    -> display "sub" args
+      Load field  -> display "load" [field]
 
 data Instr where
   Define :: Variable a -> Expr a -> Instr
@@ -87,6 +98,10 @@ main =
       , Define (Variable 1) (And [CTrue, CTrue, Var (Variable 0)])
       , Define (Variable 2) (Or [Var (Variable 0), Var (Variable 1), Var (Variable 2)])
       , Define (Variable 3) (Add [Var (Variable 2), Var (Variable 3), Var (Variable 4)])
+      , Define (Variable 4) (Load (Field "name" :: Field String))
+      , Define (Variable 5) (Load (Field "title" :: Field String))
+      , Define (Variable 6) (Concat [Var (Variable 5), CString " ", Var (Variable 4)])
+      , Yield
       ]
   in do
     mapM_ (putStrLn . show) ops
