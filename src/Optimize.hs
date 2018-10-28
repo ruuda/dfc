@@ -10,20 +10,14 @@ import Program (Gen, Program (..))
 import qualified Types
 import qualified Program as Prog
 
-pattern CTrue :: Expr t Bool
-pattern CTrue = Const (TagBool True)
-
-pattern CFalse :: Expr t Bool
-pattern CFalse = Const (TagBool False)
-
-pattern CInt :: Int -> Expr t Int
-pattern CInt i = Const (TagInt i)
-
-pattern CString :: String -> Expr t String
-pattern CString str = Const (TagString str)
-
 pattern DConst :: Value a -> Deref t a
 pattern DConst value = DefExpr (Const value)
+
+pattern DTrue :: Deref t a
+pattern DTrue <- DefExpr (Const (TagBool True))
+
+pattern DFalse :: Deref t a
+pattern DFalse <- DefExpr (Const (TagBool False))
 
 pattern DNot :: t Bool -> Deref t Bool
 pattern DNot expr = DefExpr (Not expr)
@@ -63,8 +57,8 @@ optimize program =
 -- Apply rewrite rules that eliminate operations.
 rewriteExpr :: DoDeref -> Expr Variable b -> Expr Variable b
 rewriteExpr deref expr = case expr of
-  Not (deref -> DConst VTrue) -> Const VFalse
-  Not (deref -> DConst VFalse) -> Const VTrue
+  Not (deref -> DTrue) -> Const VFalse
+  Not (deref -> DFalse) -> Const VTrue
   Not (deref -> DNot x) -> Id x
   And []  -> Const VTrue
   And [x] -> Id x
@@ -78,15 +72,19 @@ rewriteExpr deref expr = case expr of
   Concat []  -> Const (TagString "")
   Concat [x] -> Id x
   Concat xs  -> rewriteConcat deref xs
-  Select (deref -> DConst VTrue) vtrue _ -> Id vtrue
-  Select (deref -> DConst VFalse) _ vfalse -> Id vfalse
+  Select (deref -> DTrue) vtrue _ -> Id vtrue
+  Select (deref -> DFalse) _ vfalse -> Id vfalse
+  -- Note: for some reason pattern synonyms don't work here,
+  -- we need to spell out DTrue and DFalse in at least one match.
+  Select cond (deref -> DConst (TagBool True)) (deref -> DFalse) -> Id cond
+  Select cond (deref -> DConst (TagBool False)) (deref -> DTrue) -> Not cond
   _ -> expr
 
 rewriteAnd :: DoDeref -> [Variable Bool] -> Expr Variable Bool
 rewriteAnd deref = foldr' f (And [])
   where
-    f (deref -> DConst VFalse) _  = Const VFalse
-    f (deref -> DConst VTrue) z   = z
+    f (deref -> DFalse) _ = Const VFalse
+    f (deref -> DTrue) z  = z
     -- We inline nested ands even if this is not the sole consumer, under the
     -- assumption that ands are cheap, and this unlocks further optimizations.
     f (deref -> DAnd ys) z = foldr' f z ys
@@ -96,8 +94,8 @@ rewriteAnd deref = foldr' f (And [])
 rewriteOr :: DoDeref -> [Variable Bool] -> Expr Variable Bool
 rewriteOr deref = foldr' f (Or [])
   where
-    f (deref -> DConst VTrue) _  = Const VTrue
-    f (deref -> DConst VFalse) z = z
+    f (deref -> DTrue) _  = Const VTrue
+    f (deref -> DFalse) z = z
     -- We inline nested ors even if this is not the sole consumer, under the
     -- assumption that ors are cheap, and this unlocks further optimizations.
     f (deref -> DOr ys) z = foldr' f z ys
