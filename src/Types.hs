@@ -13,14 +13,19 @@ module Types
   , derefInner
   , mapBindings
   , mapMBindings
+  , deduplicateBindings
   , mapExpr
   , unionBindings
   ) where
 
+import Control.Monad.Trans.State.Strict (State)
 import Data.List (intercalate)
+import Data.Map.Strict (Map)
 import Data.IntMap.Strict (IntMap)
 import Prelude hiding (lookup)
 
+import qualified Control.Monad.Trans.State.Strict as State
+import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IntMap
 
 data Tag a b where
@@ -33,16 +38,36 @@ deriving instance Functor (Tag a)
 deriving instance Foldable (Tag a)
 deriving instance Traversable (Tag a)
 
+-- instance Hashable b => Hashable (Tag a b) where
+--   hashWithSalt salt tag = case tag of
+--     TagInt x    -> hashWithSalt (salt + 0) x
+--     TagString x -> hashWithSalt (salt + 1) x
+--     TagBool x   -> hashWithSalt (salt + 2) x
+
+instance Ord b => Ord (Tag a b) where
+  compare p q = case (p, q) of
+    (TagInt x, TagInt y)       -> compare x y
+    (TagString x, TagString y) -> compare x y
+    (TagBool x, TagBool y)     -> compare x y
+
 getTag :: Tag a b -> b
 getTag tag = case tag of
   TagInt x    -> x
   TagString x -> x
   TagBool x   -> x
 
+-- Forget the payload but discrimate the tag. Used to implement Ord.
+getTagIndex :: Tag a b -> Int
+getTagIndex tag = case tag of
+  TagInt _    -> 0
+  TagString _ -> 1
+  TagBool _   -> 2
+
 -- A variable is identified by its sequence number.
 newtype Variable a = Variable (Tag a Int)
 
 deriving instance Eq (Variable a)
+deriving instance Ord (Variable a)
 
 instance Show (Variable a) where
   show (Variable tag) =
@@ -74,6 +99,7 @@ data Field a where
   Field :: String -> Field a
 
 deriving instance Eq (Field a)
+deriving instance Ord (Field a)
 
 instance Show (Field a) where
   show (Field name) = show name
@@ -92,6 +118,7 @@ data Expr t a where
   Select     :: t Bool -> t a -> t a -> Expr t a
 
 deriving instance Eq a => Eq (Expr Variable a)
+deriving instance Ord a => Ord (Expr Variable a)
 
 instance Show (Expr Variable a) where
   show op =
@@ -115,14 +142,21 @@ data Some f = forall a. Some (f a)
 -- Must be a newtype oddly enough, otherwise GHC can't typecheck "Bindings",
 -- claiming that TaggedExpr needs a type parameter, even though Some is applied
 -- to it.
-newtype TaggedExpr a = TaggedExpr (Tag a (Expr Variable a)) deriving (Eq)
+newtype TaggedExpr a = TaggedExpr (Tag a (Expr Variable a)) deriving (Eq, Ord)
 
 instance Eq (Some TaggedExpr) where
   (Some (TaggedExpr ta)) == (Some (TaggedExpr tb)) = case (ta, tb) of
-    (TagInt a, TagInt b) -> a == b
+    (TagInt a, TagInt b)       -> a == b
     (TagString a, TagString b) -> a == b
-    (TagBool a, TagBool b) -> a == b
+    (TagBool a, TagBool b)     -> a == b
     _ -> False
+
+instance Ord (Some TaggedExpr) where
+  compare (Some (TaggedExpr ta)) (Some (TaggedExpr tb)) = case (ta, tb) of
+    (TagInt a, TagInt b)       -> compare a b
+    (TagString a, TagString b) -> compare a b
+    (TagBool a, TagBool b)     -> compare a b
+    (a, b) -> compare (getTagIndex a) (getTagIndex b)
 
 -- Tracks bindings, and the counter for the next fresh variable.
 data Bindings = Bindings
@@ -146,22 +180,25 @@ instance Show Bindings where
 newBindings :: Tag a Int -> (Variable a, Bindings)
 newBindings tag = (Variable tag, Bindings (1 + getTag tag) IntMap.empty)
 
+tagExpr :: forall a. Expr Variable a -> Tag a (Expr Variable a)
+tagExpr expr = case expr of
+  Const value     -> fmap (const expr) value
+  Id (Variable r) -> fmap (const expr) r
+  Not {}          -> TagBool expr
+  And {}          -> TagBool expr
+  Or {}           -> TagBool expr
+  Concat {}       -> TagString expr
+  Add {}          -> TagInt expr
+  Sub {}          -> TagInt expr
+  LoadString {}   -> TagString expr
+  EqString {}     -> TagBool expr
+  Select _ (Variable vtrue) _ -> fmap (const expr) vtrue
+
 bind :: Expr Variable a -> Bindings -> (Variable a, Bindings)
 bind expr (Bindings i b) =
   let
-    (var, val) = case expr of
-      Const value     -> (fmap (const i) value, fmap (const expr) value)
-      Id (Variable r) -> (fmap (const i) r, fmap (const expr) r)
-      Not {}          -> (TagBool i, TagBool expr)
-      And {}          -> (TagBool i, TagBool expr)
-      Or {}           -> (TagBool i, TagBool expr)
-      Concat {}       -> (TagString i, TagString expr)
-      Add {}          -> (TagInt i, TagInt expr)
-      Sub {}          -> (TagInt i, TagInt expr)
-      LoadString {}   -> (TagString i, TagString expr)
-      EqString {}     -> (TagBool i, TagBool expr)
-      Select _ (Variable vtrue) _ ->
-        (fmap (const i) (vtrue), fmap (const expr) vtrue)
+    val = tagExpr expr
+    var = fmap (const i) val
   in
     (Variable var, Bindings (1 + getTag var) (IntMap.insert i (Some $ TaggedExpr val) b))
 
@@ -222,3 +259,42 @@ mapMBindings f (Bindings i b) =
 unionBindings :: Bindings -> Bindings -> Bindings
 unionBindings (Bindings i0 b0) (Bindings i1 b1) =
   Bindings (max i0 i1) (IntMap.union b0 b1)
+
+
+-- Map from expressions to variables, used for deduplication of the bindings.
+-- Ideally this would be a hashmap, but I can't derive the Hashable
+-- implementation for Expr and writing it is tedious; Ord was a bit easier to
+-- deal with. So this is not a fundamental limitation, just laziness on my part.
+newtype ExprMap = ExprMap (Map (Some TaggedExpr) Int)
+
+-- Insert the expression into the map, returning the new map, and, if the
+-- expression did occur in the map, the first variable that had that expression.
+dedupExpr :: forall a. Int -> Expr Variable a -> ExprMap -> (Maybe Int, ExprMap)
+dedupExpr i expr (ExprMap exprs) =
+  let
+    key = Some (TaggedExpr $ tagExpr expr)
+  in
+    case Map.lookup key exprs of
+      Just k  -> (Just k,  ExprMap exprs)
+      Nothing -> (Nothing, ExprMap $ Map.insert key i exprs)
+
+-- Replace duplicate bindings with a reference to the first definition.
+-- Also known as "Common Subexpression Elimination".
+deduplicateBindings :: Bindings -> Bindings
+deduplicateBindings (Bindings n b) =
+  let
+    dedup :: forall a. Int -> TaggedExpr a -> State ExprMap (Expr Variable a)
+    dedup i (TaggedExpr expr) = do
+      exprs <- State.get
+      let (var, newExprs) = dedupExpr i (getTag expr) exprs
+      State.put newExprs
+      case var of
+        Just k  -> pure $ Id $ Variable $ fmap (const k) expr
+        Nothing -> pure $ getTag expr
+
+    visitExpr :: Int -> Some TaggedExpr -> State ExprMap (Some TaggedExpr)
+    visitExpr i (Some taggedExpr) = Some . TaggedExpr . tagExpr <$> dedup i taggedExpr
+
+    bindings = State.evalState (IntMap.traverseWithKey visitExpr b) (ExprMap Map.empty)
+  in
+    Bindings n bindings

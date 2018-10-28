@@ -4,7 +4,8 @@ module Optimize
 
 import Data.Foldable (foldr')
 
-import Types (Expr (..), Deref (..), Tag (..), Variable, Value, mapBindings, mapExpr)
+
+import Types (Expr (..), Deref (..), Tag (..), Variable, Value, mapBindings, deduplicateBindings, mapExpr)
 import Program (Gen, Program (..))
 
 import qualified Types
@@ -53,11 +54,21 @@ optimize :: Program a b -> Program a b
 optimize program =
   let
     oldBindings = programBindings program
+    -- Three optimization passes (read from back to front):
+    -- * Deduplicate (common subexpression eliminaton).
+    -- * Rewrite expressions in place.
+    -- * Replace usage of identity vars, introduced by deduplicate and by the
+    --   previous pass, with their sources.
     optimizeExpr :: forall c. Expr Variable c -> Expr Variable c
     optimizeExpr
       = eliminateId (Types.deref oldBindings)
       . rewriteExpr (Types.deref oldBindings)
-    newBindings = mapBindings optimizeExpr oldBindings
+    newBindings
+      = mapBindings optimizeExpr
+      $ deduplicateBindings oldBindings
+
+    -- And a final pass that involves generating new bindings, rather than
+    -- modifying existing bindings.
     rewrittenInPlace = program { programBindings = newBindings }
     regenerated = optimizeGen rewrittenInPlace
   in
@@ -180,3 +191,4 @@ eliminateId deref =
       _ -> var
   in
     mapExpr deepSource
+

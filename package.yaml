@@ -6,7 +6,9 @@ default-extensions:
   - ApplicativeDo
   - BangPatterns
   - DeriveFunctor
+  - DeriveGeneric
   - DeriveTraversable
+  - DeriveAnyClass
   - ExistentialQuantification
   - FlexibleInstances
   - GADTs
@@ -27,3 +29,4 @@ executable:
   dependencies:
     - base
     - containers
+    - transformers
