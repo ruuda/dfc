@@ -108,7 +108,12 @@ rewriteConcat :: DoDeref -> [Variable String] -> Expr Variable String
 rewriteConcat deref = Concat . foldr' f []
   where
     f (deref -> DConst (TagString "")) xs = xs
-    -- TODO: We should only inline concats if this is the sole consumer.
+    -- String concat, when implemented as adding the sizes of the parts,
+    -- allocating a buffer that large, and memcopying the parts into there, is
+    -- dominated by the copies, so if we need "a ++ b" and "a ++ b ++ c", then
+    -- computing "a ++ b ++ c" is hardly more expensive than concatenating c to
+    -- the result of "a ++ b", so even if the inner concat is used elsewhere and
+    -- it could be shared, we still inline it.
     f (deref -> DConcat ys) xs = foldr' f xs ys
     f x xs = x : xs
 
