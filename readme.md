@@ -19,6 +19,8 @@ unconditionally producing a thunk, as it would only be forced inside the branch.
 
  * The variable and expression type use GADTs for type safety. An optimization
    pass that would change the type of a value would not typecheck.
+ * The use of `PatternSynonyms` and `ViewPatterns` makes for quite readable
+   peephole optimization passes.
  * I started out allowing both variables and constants in expressions, but
    allowing only variables (and making constants expressions) make writing
    optimizations more uniform.
