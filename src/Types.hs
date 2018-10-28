@@ -2,7 +2,6 @@ module Types
   ( Variable -- Constructor not exposed to make Gen type safe.
   , Value
   , Tag (..)
-  , Term (..)
   , Deref (..)
   , Field (..)
   , Expr (..)
@@ -34,9 +33,8 @@ getTag tag = case tag of
   TagString x -> x
   TagBool x   -> x
 
-data Variable a where
-  -- A variable is identified by its sequence number.
-  Variable :: Tag a Int -> Variable a
+-- A variable is identified by its sequence number.
+newtype Variable a = Variable (Tag a Int)
 
 deriving instance Eq (Variable a)
 
@@ -57,26 +55,13 @@ instance Show (Variable a) where
 type Value a = Tag a a
 
 instance Show (Tag a a) where
-  show v = case v of
-    TagString str -> show str
-    TagInt i -> show i
-    TagBool b -> show b
-
-data Term a where
-  Var   :: Variable a -> Term a
-  Const :: Value a    -> Term a
-
-deriving instance Eq a => Eq (Term a)
-
-instance Show (Term a) where
-  show op = case op of
-    Var v   -> show v
-    Const c -> "\x1b[37m" ++ (show c) ++ "\x1b[0m"
-
-termTag :: Term a -> Tag a ()
-termTag term = case term of
-  Var (Variable tag) -> fmap (const ()) tag
-  Const tag          -> fmap (const ()) tag
+  show v = "\x1b[37m" ++ s ++ "\x1b[0m"
+    where
+      s = case v of
+        TagString str -> show str
+        TagInt i -> show i
+        TagBool True -> "true"
+        TagBool False -> "false"
 
 -- A named field.
 data Field a where
@@ -88,6 +73,7 @@ instance Show (Field a) where
   show (Field name) = show name
 
 data Expr t a where
+  Const      :: Value a    -> Expr t a
   Not        :: t Bool     -> Expr t Bool
   And        :: [t Bool]   -> Expr t Bool
   Or         :: [t Bool]   -> Expr t Bool
@@ -97,13 +83,14 @@ data Expr t a where
   LoadString :: Field String -> Expr t String
   Select     :: t Bool -> t a -> t a -> Expr t a
 
-deriving instance Eq a => Eq (Expr Term a)
+deriving instance Eq a => Eq (Expr Variable a)
 
-instance Show (Expr Term a) where
+instance Show (Expr Variable a) where
   show op =
     let
       display prefix args = prefix ++ " " ++ (intercalate " " $ fmap show args)
     in case op of
+      Const value      -> show value
       Not arg          -> display "not" [arg]
       And args         -> display "and" args
       Or args          -> display "or" args
@@ -118,7 +105,7 @@ data Some f = forall a. Some (f a)
 -- Must be a newtype oddly enough, otherwise GHC can't typecheck "Bindings",
 -- claiming that TaggedExpr needs a type parameter, even though Some is applied
 -- to it.
-newtype TaggedExpr a = TaggedExpr (Tag a (Expr Term a)) deriving (Eq)
+newtype TaggedExpr a = TaggedExpr (Tag a (Expr Variable a)) deriving (Eq)
 
 -- Tracks bindings, and the counter for the next fresh variable.
 data Bindings = Bindings
@@ -140,23 +127,26 @@ instance Show Bindings where
 newBindings :: Tag a Int -> (Variable a, Bindings)
 newBindings tag = (Variable tag, Bindings (1 + getTag tag) IntMap.empty)
 
-bind :: Expr Term a -> Bindings -> (Variable a, Bindings)
+bind :: Expr Variable a -> Bindings -> (Variable a, Bindings)
 bind expr (Bindings i b) =
   let
     (var, val) = case expr of
-      Not {}           -> (TagBool i, TagBool expr)
-      And {}           -> (TagBool i, TagBool expr)
-      Or {}            -> (TagBool i, TagBool expr)
-      Concat {}        -> (TagString i, TagString expr)
-      Add {}           -> (TagInt i, TagInt expr)
-      Sub {}           -> (TagInt i, TagInt expr)
-      LoadString {}    -> (TagString i, TagString expr)
-      Select _ vtrue _ -> (fmap (const i) (termTag vtrue), fmap (const expr) (termTag vtrue))
+      Const value   -> (fmap (const i) value, fmap (const expr) value)
+      Not {}        -> (TagBool i, TagBool expr)
+      And {}        -> (TagBool i, TagBool expr)
+      Or {}         -> (TagBool i, TagBool expr)
+      Concat {}     -> (TagString i, TagString expr)
+      Add {}        -> (TagInt i, TagInt expr)
+      Sub {}        -> (TagInt i, TagInt expr)
+      LoadString {} -> (TagString i, TagString expr)
+      Select _ (Variable vtrue) _ ->
+        (fmap (const i) (vtrue), fmap (const expr) vtrue)
   in
     (Variable var, Bindings (1 + getTag var) (IntMap.insert i (Some $ TaggedExpr val) b))
 
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
 mapExpr f expr = case expr of
+  Const value -> Const value
   Not arg     -> Not $ f arg
   And args    -> And $ fmap f args
   Or args     -> Or $ fmap f args
@@ -168,24 +158,22 @@ mapExpr f expr = case expr of
 
 data Deref t a where
   DefOpaque :: Deref t a
-  DefConst  :: Value a  -> Deref t a
   DefExpr   :: Expr t a -> Deref t a
 
-deref :: Bindings -> Term a -> Deref Term a
-deref (Bindings _ b) term = case term of
-  Const value -> DefConst value
-  Var (Variable (TagInt i)) -> case IntMap.lookup i b of
+deref :: Bindings -> Variable a -> Deref Variable a
+deref (Bindings _ b) (Variable v) = case v of
+  TagInt i -> case IntMap.lookup i b of
     Just (Some (TaggedExpr (TagInt expr))) -> DefExpr expr
     Just _ -> error "Programming error: type mismatch on deref, expected int."
     Nothing -> DefOpaque
-  Var (Variable (TagString i)) -> case IntMap.lookup i b of
+  TagString i -> case IntMap.lookup i b of
     Just (Some (TaggedExpr (TagString expr))) -> DefExpr expr
     Just _ -> error "Programming error: type mismatch on deref, expected string."
     Nothing -> DefOpaque
-  Var (Variable (TagBool i)) -> case IntMap.lookup i b of
+  TagBool i -> case IntMap.lookup i b of
     Just (Some (TaggedExpr (TagBool expr))) -> DefExpr expr
     Just _ -> error "Programming error: type mismatch on deref, expected bool."
     Nothing -> DefOpaque
 
-derefInner :: Bindings -> Expr Term a -> Expr (Deref Term) a
+derefInner :: Bindings -> Expr Variable a -> Expr (Deref Variable) a
 derefInner bindings = mapExpr (deref bindings)

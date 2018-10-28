@@ -4,6 +4,7 @@ module Program
   , genProgram
   , add
   , and
+  , const
   , concat
   , define
   , deref
@@ -16,18 +17,20 @@ module Program
   , select
   ) where
 
-import Prelude hiding (and, concat, or, not)
+import Prelude hiding (and, concat, const, or, not)
 import Data.List (intercalate)
 
-import Types (Variable, Bindings, Term (..), Tag (..), Deref (..), Expr (..), Field, newBindings, bind)
+import qualified Prelude
+
+import Types (Variable, Bindings, Tag (..), Deref (..), Expr (..), Field, Value, newBindings, bind)
 
 import qualified Types
 
 data Program a b = Program
   { programInput :: Variable a
   , programBindings :: !Bindings
-  , programCondition :: !(Term Bool)
-  , programYield :: !(Term b)
+  , programCondition :: !(Variable Bool)
+  , programYield :: !(Variable b)
   }
 
 instance Show (Program a b) where
@@ -40,7 +43,7 @@ instance Show (Program a b) where
 data GenProgram i = GenProgram
   { genInput :: Variable i
   , genBindings :: !Bindings
-  , genCondition :: !(Term Bool)
+  , genCondition :: !(Variable Bool)
   }
 
 newtype Gen i a = Gen
@@ -64,14 +67,15 @@ instance Monad (Gen i) where
       runGen (f v) state'
 
 -- TODO: Make it generic over the input type.
-genProgram :: Tag a () -> Gen a (Term b) -> Program a b
+genProgram :: Tag a () -> Gen a (Variable b) -> Program a b
 genProgram inputTypeTag gen =
   let
-    (input, bindings) = newBindings $ fmap (const 0) inputTypeTag
+    (input, bindings) = newBindings $ fmap (Prelude.const 0) inputTypeTag
+    (true, bindings') = bind (Const $ TagBool True) bindings
     initial = GenProgram
       { genInput = input
-      , genBindings = bindings
-      , genCondition = Const (TagBool True)
+      , genBindings = bindings'
+      , genCondition = true
       }
     (finalValue, finalState) = runGen gen initial
   in
@@ -82,26 +86,26 @@ genProgram inputTypeTag gen =
       , programYield = finalValue
       }
 
-loadInput :: Gen i (Term i)
-loadInput = Gen $ \state -> (Var $ genInput state, state)
+loadInput :: Gen i (Variable i)
+loadInput = Gen $ \state -> (genInput state, state)
 
-define :: Expr Term a -> Gen i (Term a)
+define :: Expr Variable a -> Gen i (Variable a)
 define expr = Gen $ \state ->
   let
     (var, bindings) = bind expr $ genBindings state
     newState = state { genBindings = bindings }
   in
-    (Var var, newState)
+    (var, newState)
 
-deref :: Term a -> Gen i (Deref Term a)
+deref :: Variable a -> Gen i (Deref Variable a)
 deref term = Gen $ \state ->
   (Types.deref (genBindings state) term, state)
 
-derefInner :: Expr Term a -> Gen i (Expr (Deref Term) a)
+derefInner :: Expr Variable a -> Gen i (Expr (Deref Variable) a)
 derefInner expr = Gen $ \state ->
   (Types.derefInner (genBindings state) expr, state)
 
-discardIf :: Term Bool -> Gen i ()
+discardIf :: Variable Bool -> Gen i ()
 discardIf discardCond =
   let
     setCondition cond = Gen $ \state -> ((), state { genCondition = cond })
@@ -112,23 +116,26 @@ discardIf discardCond =
     newCond <- define $ And [oldCond, keepIf]
     setCondition newCond
 
-not :: Term Bool -> Gen i (Term Bool)
+const :: Value a -> Gen i (Variable a)
+const = define . Const
+
+not :: Variable Bool -> Gen i (Variable Bool)
 not = define . Not
 
-and :: [Term Bool] -> Gen i (Term Bool)
+and :: [Variable Bool] -> Gen i (Variable Bool)
 and = define . And
 
-or :: [Term Bool] -> Gen i (Term Bool)
+or :: [Variable Bool] -> Gen i (Variable Bool)
 or = define . Or
 
-concat :: [Term String] -> Gen i (Term String)
+concat :: [Variable String] -> Gen i (Variable String)
 concat = define . Concat
 
-add :: [Term Int] -> Gen i (Term Int)
+add :: [Variable Int] -> Gen i (Variable Int)
 add = define . Add
 
-loadField :: Field String -> Gen i (Term String)
+loadField :: Field String -> Gen i (Variable String)
 loadField = define . LoadString
 
-select :: Term Bool -> Term a -> Term a -> Gen i (Term a)
+select :: Variable Bool -> Variable a -> Variable a -> Gen i (Variable a)
 select cond vtrue vfalse = define $ Select cond vtrue vfalse
