@@ -66,6 +66,8 @@ rewriteExpr deref expr = case expr of
   Or []  -> Const VFalse
   Or [x] -> Id x
   Or xs  -> rewriteOr deref xs
+  Select (deref -> DConst VTrue) vtrue _ -> Id vtrue
+  Select (deref -> DConst VFalse) _ vfalse -> Id vfalse
   _ -> expr
 
 rewriteAnd :: DoDeref -> [Variable Bool] -> Expr Variable Bool
