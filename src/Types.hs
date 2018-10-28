@@ -12,7 +12,9 @@ module Types
   , deref
   , derefInner
   , mapBindings
+  , mapMBindings
   , mapExpr
+  , unionBindings
   ) where
 
 import Data.List (intercalate)
@@ -28,6 +30,8 @@ data Tag a b where
 
 deriving instance Eq b => Eq (Tag a b)
 deriving instance Functor (Tag a)
+deriving instance Foldable (Tag a)
+deriving instance Traversable (Tag a)
 
 getTag :: Tag a b -> b
 getTag tag = case tag of
@@ -201,3 +205,20 @@ mapBindings :: (forall a. Expr Variable a -> Expr Variable a) -> Bindings -> Bin
 mapBindings f (Bindings i b) = Bindings i (fmap mapBinding b)
   where
     mapBinding (Some (TaggedExpr expr)) = Some $ TaggedExpr $ fmap f expr
+
+mapMBindings
+  :: Monad m
+  => (forall a. Expr Variable a -> m (Expr Variable a))
+  -> Bindings
+  -> m Bindings
+mapMBindings f (Bindings i b) =
+  let
+    mapBinding (Some (TaggedExpr expr)) = Some . TaggedExpr <$> (mapM f expr)
+  in do
+    bindings <- mapM mapBinding b
+    pure $ Bindings i bindings
+
+-- Union two bindings with left-bias on duplicate bindings.
+unionBindings :: Bindings -> Bindings -> Bindings
+unionBindings (Bindings i0 b0) (Bindings i1 b1) =
+  Bindings (max i0 i1) (IntMap.union b0 b1)

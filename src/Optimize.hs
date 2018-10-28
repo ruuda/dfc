@@ -19,6 +19,13 @@ pattern DTrue <- DefExpr (Const (TagBool True))
 pattern DFalse :: Deref t a
 pattern DFalse <- DefExpr (Const (TagBool False))
 
+-- TODO: Rename CString, for const?
+pattern DString :: String -> Deref t a
+pattern DString str <- DefExpr (Const (TagString str))
+
+pattern CInt :: Int -> Deref t a
+pattern CInt i <- DefExpr (Const (TagInt i))
+
 pattern DNot :: t Bool -> Deref t Bool
 pattern DNot expr = DefExpr (Not expr)
 
@@ -51,8 +58,10 @@ optimize program =
       = eliminateId (Types.deref oldBindings)
       . rewriteExpr (Types.deref oldBindings)
     newBindings = mapBindings optimizeExpr oldBindings
+    rewrittenInPlace = program { programBindings = newBindings }
+    regenerated = optimizeGen rewrittenInPlace
   in
-    program { programBindings = newBindings }
+    regenerated
 
 -- Apply rewrite rules that eliminate operations.
 rewriteExpr :: DoDeref -> Expr Variable b -> Expr Variable b
@@ -122,6 +131,41 @@ rewriteAdd deref = Add . foldr' f []
     -- TODO: We should only inline adds if this is the sole consumer.
     f (deref -> DAdd ys) xs = foldr' f xs ys
     f x xs = x : xs
+
+-- Apply rewrite optimizations that involve inserting additional expressions,
+-- rather than rewriting existing expressions in place. This includes some forms
+-- of constant folding, where we need to introduce new constants, for example.
+optimizeGen :: forall a b. Program a b -> Program a b
+optimizeGen program = Prog.regenProgram rewrite program
+  where
+    -- Deref always looks up in the previous program, so it does not see
+    -- rewrites that may already have occurred. This does not affect semantics,
+    -- as rewrites should only rewrite to equivalent expressions anyway. But it
+    -- does mean that some optimizations can take more passes to be discovered.
+    deref :: DoDeref
+    deref = Types.deref (programBindings program)
+
+    rewrite :: forall c. Expr Variable c -> Gen a (Expr Variable c)
+    rewrite expr = case expr of
+      Concat xs -> Concat <$> f xs
+        where
+          -- Concatenate two consecutive string constants into one constant.
+          f ((deref -> DString x) : (deref -> DString y) : zs) = do
+              xCatY <- Prog.const $ TagString (x ++ y)
+              f (xCatY : zs)
+          f (x : zs) = (x:) <$> f zs
+          f [] = pure []
+      Add xs -> Add <$> f xs
+        where
+          -- Concatenate two consecutive integer constants into one constant.
+          -- TODO: Should partition into const and non-const and add *all*
+          -- constants, not just adjacent ones.
+          f ((deref -> CInt x) : (deref -> CInt y) : zs) = do
+            xPlusY <- Prog.const $ TagInt (x + y)
+            f (xPlusY : zs)
+          f (x : zs) = (x:) <$> f zs
+          f [] = pure []
+      _ -> pure expr
 
 -- Replace references to an identity expression with references to the source of
 -- the identity expression. The replacement follows all the way through to the

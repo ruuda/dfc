@@ -6,6 +6,7 @@ default-extensions:
   - ApplicativeDo
   - BangPatterns
   - DeriveFunctor
+  - DeriveTraversable
   - ExistentialQuantification
   - FlexibleInstances
   - GADTs
