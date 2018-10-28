@@ -87,6 +87,7 @@ rewriteExpr deref expr = case expr of
   -- we need to spell out DTrue and DFalse in at least one match.
   Select cond (deref -> DConst (TagBool True)) (deref -> DFalse) -> Id cond
   Select cond (deref -> DConst (TagBool False)) (deref -> DTrue) -> Not cond
+  EqString x y | x == y -> Const VTrue
   _ -> expr
 
 rewriteAnd :: DoDeref -> [Variable Bool] -> Expr Variable Bool
