@@ -75,6 +75,7 @@ instance Show (Field a) where
 
 data Expr t a where
   Const      :: Value a    -> Expr t a
+  Id         :: t a        -> Expr t a
   Not        :: t Bool     -> Expr t Bool
   And        :: [t Bool]   -> Expr t Bool
   Or         :: [t Bool]   -> Expr t Bool
@@ -93,6 +94,7 @@ instance Show (Expr Variable a) where
       display prefix args = prefix ++ " " ++ (intercalate " " $ fmap show args)
     in case op of
       Const value      -> show value
+      Id arg           -> show arg
       Not arg          -> display "not" [arg]
       And args         -> display "and" args
       Or args          -> display "or" args
@@ -143,15 +145,16 @@ bind :: Expr Variable a -> Bindings -> (Variable a, Bindings)
 bind expr (Bindings i b) =
   let
     (var, val) = case expr of
-      Const value   -> (fmap (const i) value, fmap (const expr) value)
-      Not {}        -> (TagBool i, TagBool expr)
-      And {}        -> (TagBool i, TagBool expr)
-      Or {}         -> (TagBool i, TagBool expr)
-      Concat {}     -> (TagString i, TagString expr)
-      Add {}        -> (TagInt i, TagInt expr)
-      Sub {}        -> (TagInt i, TagInt expr)
-      LoadString {} -> (TagString i, TagString expr)
-      EqString {}   -> (TagBool i, TagBool expr)
+      Const value     -> (fmap (const i) value, fmap (const expr) value)
+      Id (Variable r) -> (fmap (const i) r, fmap (const expr) r)
+      Not {}          -> (TagBool i, TagBool expr)
+      And {}          -> (TagBool i, TagBool expr)
+      Or {}           -> (TagBool i, TagBool expr)
+      Concat {}       -> (TagString i, TagString expr)
+      Add {}          -> (TagInt i, TagInt expr)
+      Sub {}          -> (TagInt i, TagInt expr)
+      LoadString {}   -> (TagString i, TagString expr)
+      EqString {}     -> (TagBool i, TagBool expr)
       Select _ (Variable vtrue) _ ->
         (fmap (const i) (vtrue), fmap (const expr) vtrue)
   in
@@ -160,6 +163,7 @@ bind expr (Bindings i b) =
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
 mapExpr f expr = case expr of
   Const value -> Const value
+  Id ref      -> Id $ f ref
   Not arg     -> Not $ f arg
   And args    -> And $ fmap f args
   Or args     -> Or $ fmap f args
