@@ -99,6 +99,7 @@ rewriteExpr deref expr = case expr of
   Concat xs  -> rewriteConcat deref xs
   Select (deref -> DTrue) vtrue _ -> Id vtrue
   Select (deref -> DFalse) _ vfalse -> Id vfalse
+  Select (deref -> DNot x) vtrue vfalse -> Select x vfalse vtrue
   -- Note: for some reason pattern synonyms don't work here,
   -- we need to spell out DTrue and DFalse in at least one match.
   Select cond (deref -> DConst (TagBool True)) (deref -> DFalse) -> Id cond
