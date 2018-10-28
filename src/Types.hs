@@ -18,9 +18,7 @@ module Types
   , unionBindings
   ) where
 
-import Control.Monad.Trans.State.Strict (State)
 import Data.List (intercalate)
-import Data.Map.Strict (Map)
 import Data.IntMap.Strict (IntMap)
 import Prelude hiding (lookup)
 
@@ -194,13 +192,17 @@ tagExpr expr = case expr of
   EqString {}     -> TagBool expr
   Select _ (Variable vtrue) _ -> fmap (const expr) vtrue
 
+-- Erase the type tag from an expression, for storage in an IntMap.
+erase :: forall a. Expr Variable a -> Some TaggedExpr
+erase = Some . TaggedExpr . tagExpr
+
 bind :: Expr Variable a -> Bindings -> (Variable a, Bindings)
 bind expr (Bindings i b) =
   let
     val = tagExpr expr
     var = fmap (const i) val
   in
-    (Variable var, Bindings (1 + getTag var) (IntMap.insert i (Some $ TaggedExpr val) b))
+    (Variable var, Bindings (1 + getTag var) (IntMap.insert i (erase expr) b))
 
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
 mapExpr f expr = case expr of
@@ -260,41 +262,24 @@ unionBindings :: Bindings -> Bindings -> Bindings
 unionBindings (Bindings i0 b0) (Bindings i1 b1) =
   Bindings (max i0 i1) (IntMap.union b0 b1)
 
-
--- Map from expressions to variables, used for deduplication of the bindings.
--- Ideally this would be a hashmap, but I can't derive the Hashable
--- implementation for Expr and writing it is tedious; Ord was a bit easier to
--- deal with. So this is not a fundamental limitation, just laziness on my part.
-newtype ExprMap = ExprMap (Map (Some TaggedExpr) Int)
-
--- Insert the expression into the map, returning the new map, and, if the
--- expression did occur in the map, the first variable that had that expression.
-dedupExpr :: forall a. Int -> Expr Variable a -> ExprMap -> (Maybe Int, ExprMap)
-dedupExpr i expr (ExprMap exprs) =
-  let
-    key = Some (TaggedExpr $ tagExpr expr)
-  in
-    case Map.lookup key exprs of
-      Just k  -> (Just k,  ExprMap exprs)
-      Nothing -> (Nothing, ExprMap $ Map.insert key i exprs)
-
--- Replace duplicate bindings with a reference to the first definition.
--- Also known as "Common Subexpression Elimination".
+-- Replace duplicate bindings with a reference to the first definition. Also
+-- known as "Common Subexpression Elimination". We use a Map from expression to
+-- variable number, rather than a HashMap, because Ord was mostly derivable and
+-- Hashable was not; it is laziness on my part, not a fundamental limitation.
 deduplicateBindings :: Bindings -> Bindings
-deduplicateBindings (Bindings n b) =
-  let
-    dedup :: forall a. Int -> TaggedExpr a -> State ExprMap (Expr Variable a)
-    dedup i (TaggedExpr expr) = do
+deduplicateBindings (Bindings n b) = Bindings n deduplicated
+  where
+    deduplicated = State.evalState (IntMap.traverseWithKey dedup b) Map.empty
+
+    -- Replace any expression with an identity expression, referencing variable i.
+    reference i (Some (TaggedExpr expr)) = erase $ Id $ Variable $ fmap (const i) expr
+
+    -- Return either the original expression, or an identity expression that
+    -- references the variable that first defined that same expression.
+    dedup i expr = do
       exprs <- State.get
-      let (var, newExprs) = dedupExpr i (getTag expr) exprs
-      State.put newExprs
-      case var of
-        Just k  -> pure $ Id $ Variable $ fmap (const k) expr
-        Nothing -> pure $ getTag expr
-
-    visitExpr :: Int -> Some TaggedExpr -> State ExprMap (Some TaggedExpr)
-    visitExpr i (Some taggedExpr) = Some . TaggedExpr . tagExpr <$> dedup i taggedExpr
-
-    bindings = State.evalState (IntMap.traverseWithKey visitExpr b) (ExprMap Map.empty)
-  in
-    Bindings n bindings
+      case Map.lookup expr exprs of
+        Just k  -> pure $ reference k expr
+        Nothing -> do
+          State.put $ Map.insert expr i exprs
+          pure expr

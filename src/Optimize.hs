@@ -191,4 +191,3 @@ eliminateId deref =
       _ -> var
   in
     mapExpr deepSource
-

@@ -6,12 +6,13 @@ default-extensions:
   - ApplicativeDo
   - BangPatterns
   - DeriveFunctor
+  - DeriveAnyClass
   - DeriveGeneric
   - DeriveTraversable
-  - DeriveAnyClass
   - ExistentialQuantification
   - FlexibleInstances
   - GADTs
+  - LambdaCase
   - PatternSynonyms
   - RankNTypes
   - ScopedTypeVariables
