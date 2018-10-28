@@ -34,6 +34,9 @@ pattern DAnd expr = DefExpr (And expr)
 pattern DOr :: [t Bool] -> Deref t Bool
 pattern DOr expr = DefExpr (Or expr)
 
+pattern DAdd :: [t Int] -> Deref t Int
+pattern DAdd expr = DefExpr (Add expr)
+
 pattern DConcat :: [t String] -> Deref t String
 pattern DConcat expr = DefExpr (Concat expr)
 
@@ -69,6 +72,9 @@ rewriteExpr deref expr = case expr of
   Or []  -> Const VFalse
   Or [x] -> Id x
   Or xs  -> rewriteOr deref xs
+  Add []  -> Const (TagInt 0)
+  Add [x] -> Id x
+  Add xs  -> rewriteAdd deref xs
   Concat []  -> Const (TagString "")
   Concat [x] -> Id x
   Concat xs  -> rewriteConcat deref xs
@@ -104,6 +110,14 @@ rewriteConcat deref = Concat . foldr' f []
     f (deref -> DConst (TagString "")) xs = xs
     -- TODO: We should only inline concats if this is the sole consumer.
     f (deref -> DConcat ys) xs = foldr' f xs ys
+    f x xs = x : xs
+
+rewriteAdd :: DoDeref -> [Variable Int] -> Expr Variable Int
+rewriteAdd deref = Add . foldr' f []
+  where
+    f (deref -> DConst (TagInt 0)) xs = xs
+    -- TODO: We should only inline adds if this is the sole consumer.
+    f (deref -> DAdd ys) xs = foldr' f xs ys
     f x xs = x : xs
 
 -- Replace references to an identity expression with references to the source of
