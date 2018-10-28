@@ -18,10 +18,10 @@ module Types
   ) where
 
 import Data.List (intercalate)
-import Data.IntMap (IntMap)
+import Data.IntMap.Strict (IntMap)
 import Prelude hiding (lookup)
 
-import qualified Data.IntMap as IntMap
+import qualified Data.IntMap.Strict as IntMap
 
 data Tag a b where
   TagInt    :: b -> Tag Int b
