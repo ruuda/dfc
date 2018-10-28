@@ -48,34 +48,39 @@ pattern VTrue = TagBool True
 pattern VFalse :: Value Bool
 pattern VFalse = TagBool False
 
-type DoDeref = forall a. Variable a -> Deref Variable a
+type PolyDeref = forall a. Variable a -> Deref Variable a
+type PolyRewrite = forall a. Expr Variable a -> Expr Variable a
 
 optimize :: Program a b -> Program a b
-optimize program =
+optimize =
   let
-    oldBindings = programBindings program
-    -- Three optimization passes (read from back to front):
+    dedup p = p { programBindings = deduplicateBindings $ programBindings p }
+  in
+    -- Four optimization passes (read from back to front):
     -- * Deduplicate (common subexpression eliminaton).
     -- * Rewrite expressions in place.
     -- * Replace usage of identity vars, introduced by deduplicate and by the
     --   previous pass, with their sources.
-    optimizeExpr :: forall c. Expr Variable c -> Expr Variable c
-    optimizeExpr
-      = eliminateId (Types.deref oldBindings)
-      . rewriteExpr (Types.deref oldBindings)
-    newBindings
-      = mapBindings optimizeExpr
-      $ deduplicateBindings oldBindings
+    -- * A final pass for optimizations that could not be done in-place because
+    --   they need to generate new bindings, such as constant folding.
+    optimizeGen
+    . eliminateIdExprs
+    . rewriteExprs
+    . eliminateIdExprs
+    . dedup
 
-    -- And a final pass that involves generating new bindings, rather than
-    -- modifying existing bindings.
-    rewrittenInPlace = program { programBindings = newBindings }
-    regenerated = optimizeGen rewrittenInPlace
+-- Apply rewriteExpr to all bound expressions.
+rewriteExprs :: Program a b -> Program a b
+rewriteExprs program =
+  let
+    bindings = programBindings program
+    rewrite :: PolyRewrite
+    rewrite = rewriteExpr (Types.deref bindings)
   in
-    regenerated
+    program { programBindings = mapBindings rewrite bindings }
 
 -- Apply rewrite rules that eliminate operations.
-rewriteExpr :: DoDeref -> Expr Variable b -> Expr Variable b
+rewriteExpr :: PolyDeref -> Expr Variable b -> Expr Variable b
 rewriteExpr deref expr = case expr of
   Not (deref -> DTrue) -> Const VFalse
   Not (deref -> DFalse) -> Const VTrue
@@ -101,7 +106,7 @@ rewriteExpr deref expr = case expr of
   EqString x y | x == y -> Const VTrue
   _ -> expr
 
-rewriteAnd :: DoDeref -> [Variable Bool] -> Expr Variable Bool
+rewriteAnd :: PolyDeref -> [Variable Bool] -> Expr Variable Bool
 rewriteAnd deref = foldr' f (And [])
   where
     f (deref -> DFalse) _ = Const VFalse
@@ -112,7 +117,7 @@ rewriteAnd deref = foldr' f (And [])
     f x (And xs) = And (x : xs)
     f _ z        = z
 
-rewriteOr :: DoDeref -> [Variable Bool] -> Expr Variable Bool
+rewriteOr :: PolyDeref -> [Variable Bool] -> Expr Variable Bool
 rewriteOr deref = foldr' f (Or [])
   where
     f (deref -> DTrue) _  = Const VTrue
@@ -123,7 +128,7 @@ rewriteOr deref = foldr' f (Or [])
     f x (Or xs)  = Or (x : xs)
     f _ z        = z
 
-rewriteConcat :: DoDeref -> [Variable String] -> Expr Variable String
+rewriteConcat :: PolyDeref -> [Variable String] -> Expr Variable String
 rewriteConcat deref = Concat . foldr' f []
   where
     f (deref -> DConst (TagString "")) xs = xs
@@ -136,7 +141,7 @@ rewriteConcat deref = Concat . foldr' f []
     f (deref -> DConcat ys) xs = foldr' f xs ys
     f x xs = x : xs
 
-rewriteAdd :: DoDeref -> [Variable Int] -> Expr Variable Int
+rewriteAdd :: PolyDeref -> [Variable Int] -> Expr Variable Int
 rewriteAdd deref = Add . foldr' f []
   where
     f (deref -> DConst (TagInt 0)) xs = xs
@@ -154,7 +159,7 @@ optimizeGen program = Prog.regenProgram rewrite program
     -- rewrites that may already have occurred. This does not affect semantics,
     -- as rewrites should only rewrite to equivalent expressions anyway. But it
     -- does mean that some optimizations can take more passes to be discovered.
-    deref :: DoDeref
+    deref :: PolyDeref
     deref = Types.deref (programBindings program)
 
     rewrite :: forall c. Expr Variable c -> Gen a (Expr Variable c)
@@ -182,12 +187,22 @@ optimizeGen program = Prog.regenProgram rewrite program
 -- Replace references to an identity expression with references to the source of
 -- the identity expression. The replacement follows all the way through to the
 -- expression that is not an identity expression.
-eliminateId :: DoDeref -> Expr Variable b -> Expr Variable b
-eliminateId deref =
+deepSource :: forall a. PolyDeref -> Variable a -> Variable a
+deepSource deref var = case deref var of
+  DefExpr (Id source) -> deepSource deref source
+  _ -> var
+
+-- Eliminate usages of variables bound to id expressions. Replace them with
+-- references to the sources of those id expressions.
+eliminateIdExprs :: Program a b -> Program a b
+eliminateIdExprs program =
   let
-    deepSource :: forall c. Variable c -> Variable c
-    deepSource var = case deref var of
-      DefExpr (Id source) -> deepSource source
-      _ -> var
+    bindings = programBindings program
+    replace :: forall a. Variable a -> Variable a
+    replace = deepSource $ Types.deref bindings
   in
-    mapExpr deepSource
+    program
+      { programBindings = mapBindings (mapExpr replace) bindings
+      , programCondition = replace $ programCondition program
+      , programYield = replace $ programYield program
+      }
