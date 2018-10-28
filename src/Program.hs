@@ -33,6 +33,8 @@ data Program a b = Program
   , programYield :: !(Variable b)
   }
 
+deriving instance Eq (Program a b)
+
 instance Show (Program a b) where
   show p = intercalate "\n"
     [ "input " ++ (show $ programInput p)

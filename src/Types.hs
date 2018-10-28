@@ -11,6 +11,7 @@ module Types
   , bind
   , deref
   , derefInner
+  , mapBindings
   ) where
 
 import Data.List (intercalate)
@@ -107,11 +108,20 @@ data Some f = forall a. Some (f a)
 -- to it.
 newtype TaggedExpr a = TaggedExpr (Tag a (Expr Variable a)) deriving (Eq)
 
+instance Eq (Some TaggedExpr) where
+  (Some (TaggedExpr ta)) == (Some (TaggedExpr tb)) = case (ta, tb) of
+    (TagInt a, TagInt b) -> a == b
+    (TagString a, TagString b) -> a == b
+    (TagBool a, TagBool b) -> a == b
+    _ -> False
+
 -- Tracks bindings, and the counter for the next fresh variable.
 data Bindings = Bindings
   { _bindingsFresh :: !Int
   , _bindingsBindings :: !(IntMap (Some TaggedExpr))
   }
+
+deriving instance Eq Bindings
 
 instance Show Bindings where
   show (Bindings _ b) =
@@ -177,3 +187,8 @@ deref (Bindings _ b) (Variable v) = case v of
 
 derefInner :: Bindings -> Expr Variable a -> Expr (Deref Variable) a
 derefInner bindings = mapExpr (deref bindings)
+
+mapBindings :: (forall a. Expr Variable a -> Expr Variable a) -> Bindings -> Bindings
+mapBindings f (Bindings i b) = Bindings i (fmap mapBinding b)
+  where
+    mapBinding (Some (TaggedExpr expr)) = Some $ TaggedExpr $ fmap f expr

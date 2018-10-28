@@ -1,5 +1,8 @@
-import Types (Variable, Tag (..), Field (..), Expr (..), Bindings, newBindings, bind)
+import Control.Monad (void)
+
+import Types (Tag (..), Field (..))
 import Program (Program)
+import Optimize (optimize)
 
 import qualified Program as Prog
 
@@ -25,10 +28,17 @@ program = Prog.genProgram (TagString ()) $ do
   Prog.discardIf false'
   pure newName
 
-main :: IO ()
-main = do
-  putStrLn "Original:"
-  putStrLn $ show program
+printUntilOptimized :: Program a b -> IO ()
+printUntilOptimized p = do
+  putStrLn $ show p
+  let optimized = optimize p
+  if optimized == p
+    then putStrLn "\nReached fixed point, done."
+    else do
+      void $ getLine
+      putStrLn "After optimization step:\n"
+      printUntilOptimized optimized
 
-  putStrLn "\nOptimized:"
-  putStrLn $ show program
+
+main :: IO ()
+main = printUntilOptimized program
