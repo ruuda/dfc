@@ -30,6 +30,13 @@ program = Prog.genProgram (TagString ()) $ do
   shouldInclude <- Prog.eqString include strTrue
   shouldReject <- Prog.not shouldInclude
   Prog.discardIf shouldReject
+  strFoobar <- Prog.const $ TagString "foobar"
+  strFoo <- Prog.const $ TagString "foo"
+  strBar <- Prog.const $ TagString "bar"
+  catFoobar <- Prog.concat [strFoo, strBar]
+  foobarEqSelf <- Prog.eqString strFoobar catFoobar
+  concatWentWrong <- Prog.not foobarEqSelf
+  Prog.discardIf concatWentWrong
   pure newName
 
 printUntilOptimized :: Program a b -> IO ()
