@@ -11,6 +11,7 @@ module Program
   , derefInner
   , discardIf
   , loadField
+  , eqString
   , loadInput
   , not
   , or
@@ -138,6 +139,9 @@ add = define . Add
 
 loadField :: Field String -> Gen i (Variable String)
 loadField = define . LoadString
+
+eqString :: Variable String -> Variable String -> Gen i (Variable Bool)
+eqString a b = define $ EqString a b
 
 select :: Variable Bool -> Variable a -> Variable a -> Gen i (Variable a)
 select cond vtrue vfalse = define $ Select cond vtrue vfalse

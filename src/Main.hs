@@ -26,6 +26,10 @@ program = Prog.genProgram (TagString ()) $ do
   Prog.discardIf b
   false' <- Prog.not true
   Prog.discardIf false'
+  include <- Prog.loadField (Field "include" :: Field String)
+  shouldInclude <- Prog.eqString include strTrue
+  shouldReject <- Prog.not shouldInclude
+  Prog.discardIf shouldReject
   pure newName
 
 printUntilOptimized :: Program a b -> IO ()

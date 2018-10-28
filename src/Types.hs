@@ -82,6 +82,7 @@ data Expr t a where
   Add        :: [t Int]    -> Expr t Int
   Sub        :: [t Int]    -> Expr t Int
   LoadString :: Field String -> Expr t String
+  EqString   :: t String -> t String -> Expr t Bool
   Select     :: t Bool -> t a -> t a -> Expr t a
 
 deriving instance Eq a => Eq (Expr Variable a)
@@ -99,6 +100,7 @@ instance Show (Expr Variable a) where
       Add args         -> display "add" args
       Sub args         -> display "sub" args
       LoadString field -> display "load" [field]
+      EqString x y     -> display "eq" [x, y]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
 data Some f = forall a. Some (f a)
@@ -149,6 +151,7 @@ bind expr (Bindings i b) =
       Add {}        -> (TagInt i, TagInt expr)
       Sub {}        -> (TagInt i, TagInt expr)
       LoadString {} -> (TagString i, TagString expr)
+      EqString {}   -> (TagBool i, TagBool expr)
       Select _ (Variable vtrue) _ ->
         (fmap (const i) (vtrue), fmap (const expr) vtrue)
   in
@@ -164,6 +167,7 @@ mapExpr f expr = case expr of
   Add args    -> Add $ fmap f args
   Sub args    -> Sub $ fmap f args
   LoadString field -> LoadString field
+  EqString x y -> EqString (f x) (f y)
   Select cond vtrue vfalse -> Select (f cond) (f vtrue) (f vfalse)
 
 data Deref t a where
