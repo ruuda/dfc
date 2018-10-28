@@ -12,6 +12,7 @@ module Types
   , deref
   , derefInner
   , mapBindings
+  , mapExpr
   ) where
 
 import Data.List (intercalate)
