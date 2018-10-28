@@ -23,6 +23,9 @@ pattern CString str = Const (TagString str)
 pattern DConst :: Value a -> Deref t a
 pattern DConst value = DefExpr (Const value)
 
+pattern DNot :: t Bool -> Deref t Bool
+pattern DNot expr = DefExpr (Not expr)
+
 pattern VTrue :: Value Bool
 pattern VTrue = TagBool True
 
@@ -41,4 +44,5 @@ rewriteExpr :: (t a -> Deref t a) -> Expr t a -> Expr t a
 rewriteExpr deref expr = case expr of
   Not (deref -> DConst VTrue) -> Const VFalse
   Not (deref -> DConst VFalse) -> Const VTrue
+  Not (deref -> DNot x) -> Id x
   _ -> expr
