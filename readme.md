@@ -15,6 +15,18 @@ For example, if a value is only used conditionally, we should only compute
 it in the branch where it is used. In a lazy language we could get away with
 unconditionally producing a thunk, as it would only be forced inside the branch.
 
+## Implementation Notes
+
+ * The variable and expression type use GADTs for type safety. An optimization
+   pass that would change the type of a value would not typecheck.
+ * I started out allowing both variables and constants in expressions, but
+   allowing only variables (and making constants expressions) make writing
+   optimizations more uniform.
+ * Having an identity expression is useful to modularize optimization passes.
+   One pass would rewrite `$2 = $1 + 0` to `$2 = $1`, and it does not need to
+   be cluttered by anything else. Another pass would then rewrite references to
+   `$2` with references to `$1`, at which point `$2` becomes dead code.
+
 ## Building
 
     stack setup
