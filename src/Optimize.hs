@@ -75,7 +75,8 @@ rewriteAnd deref = foldr' f (And [])
   where
     f (deref -> DConst VFalse) _  = Const VFalse
     f (deref -> DConst VTrue) z   = z
-    -- TODO: This next rule should only be applied if this is the only consumer.
+    -- We inline nested ands even if this is not the sole consumer, under the
+    -- assumption that ands are cheap, and this unlocks further optimizations.
     f (deref -> DAnd ys) z = foldr' f z ys
     f x (And xs) = And (x : xs)
     f _ z        = z
@@ -85,7 +86,8 @@ rewriteOr deref = foldr' f (Or [])
   where
     f (deref -> DConst VTrue) _  = Const VTrue
     f (deref -> DConst VFalse) z = z
-    -- TODO: This next rule should only be applied if this is the only consumer.
+    -- We inline nested ors even if this is not the sole consumer, under the
+    -- assumption that ors are cheap, and this unlocks further optimizations.
     f (deref -> DOr ys) z = foldr' f z ys
     f x (Or xs)  = Or (x : xs)
     f _ z        = z
