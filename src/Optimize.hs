@@ -34,6 +34,9 @@ pattern DAnd expr = DefExpr (And expr)
 pattern DOr :: [t Bool] -> Deref t Bool
 pattern DOr expr = DefExpr (Or expr)
 
+pattern DConcat :: [t String] -> Deref t String
+pattern DConcat expr = DefExpr (Concat expr)
+
 pattern VTrue :: Value Bool
 pattern VTrue = TagBool True
 
@@ -66,6 +69,9 @@ rewriteExpr deref expr = case expr of
   Or []  -> Const VFalse
   Or [x] -> Id x
   Or xs  -> rewriteOr deref xs
+  Concat []  -> Const (TagString "")
+  Concat [x] -> Id x
+  Concat xs  -> rewriteConcat deref xs
   Select (deref -> DConst VTrue) vtrue _ -> Id vtrue
   Select (deref -> DConst VFalse) _ vfalse -> Id vfalse
   _ -> expr
@@ -91,6 +97,14 @@ rewriteOr deref = foldr' f (Or [])
     f (deref -> DOr ys) z = foldr' f z ys
     f x (Or xs)  = Or (x : xs)
     f _ z        = z
+
+rewriteConcat :: DoDeref -> [Variable String] -> Expr Variable String
+rewriteConcat deref = Concat . foldr' f []
+  where
+    f (deref -> DConst (TagString "")) xs = xs
+    -- TODO: We should only inline concats if this is the sole consumer.
+    f (deref -> DConcat ys) xs = foldr' f xs ys
+    f x xs = x : xs
 
 -- Replace references to an identity expression with references to the source of
 -- the identity expression. The replacement follows all the way through to the
