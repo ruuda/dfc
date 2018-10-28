@@ -10,8 +10,15 @@ default-extensions:
   - FlexibleInstances
   - GADTs
   - PatternSynonyms
-  - StandaloneDeriving
   - RankNTypes
+  - ScopedTypeVariables
+  - StandaloneDeriving
+  - ViewPatterns
+
+ghc-options: >-
+  -Wall
+  -Wincomplete-record-updates
+  -Wincomplete-uni-patterns
 
 executable:
   main: Main.hs
