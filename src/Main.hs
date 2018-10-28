@@ -36,7 +36,8 @@ program = Prog.genProgram (TagString ()) $ do
   catFoobar <- Prog.concat [strFoo, strBar]
   foobarEqSelf <- Prog.eqString strFoobar catFoobar
   concatWentWrong <- Prog.not foobarEqSelf
-  Prog.discardIf concatWentWrong
+  discard <- Prog.select concatWentWrong true false
+  Prog.discardIf discard
   pure newName
 
 printUntilOptimized :: Program a b -> IO ()
