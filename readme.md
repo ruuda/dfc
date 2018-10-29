@@ -31,7 +31,6 @@ unconditionally producing a thunk, as it would only be forced inside the branch.
 
 ## Building
 
-    stack setup
     stack build
     stack exec dataflow
 
