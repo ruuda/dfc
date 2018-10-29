@@ -117,6 +117,7 @@ data Expr t a where
   Sub        :: [t Int]    -> Expr t Int
   LoadString :: Field String -> Expr t String
   EqString   :: t String -> t String -> Expr t Bool
+  Less       :: t Int -> t Int -> Expr t Bool
   Select     :: t Bool -> t a -> t a -> Expr t a
 
 deriving instance Eq a => Eq (Expr Variable a)
@@ -137,6 +138,7 @@ instance Show (Expr Variable a) where
       Sub args         -> display "sub" args
       LoadString field -> display "load" [field]
       EqString x y     -> display "eq" [x, y]
+      Less x y         -> display "lt" [x, y]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
 data Some f = forall a. Some (f a)
@@ -194,6 +196,7 @@ tagExpr expr = case expr of
   Sub {}          -> TagInt expr
   LoadString {}   -> TagString expr
   EqString {}     -> TagBool expr
+  Less {}         -> TagBool expr
   Select _ (Variable vtrue) _ -> fmap (const expr) vtrue
 
 -- Erase the type tag from an expression, for storage in an IntMap.
@@ -220,6 +223,7 @@ traverseExpr f expr = case expr of
   Sub args    -> Sub <$> traverse f args
   LoadString field -> pure $ LoadString field
   EqString x y -> EqString <$> f x <*> f y
+  Less x y     -> Less <$> f x <*> f y
   Select cond vtrue vfalse -> Select <$> f cond <*> f vtrue <*> f vfalse
 
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
