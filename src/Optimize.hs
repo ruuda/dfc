@@ -5,7 +5,8 @@ module Optimize
 import Data.Foldable (foldr')
 
 
-import Types (Expr (..), Deref (..), Tag (..), Variable, Value, mapBindings, deduplicateBindings, mapExpr)
+import Types (Expr (..), Deref (..), Tag (..), Variable, Value)
+import Types (mapBindings, deduplicateBindings, removeUnusedBindings, unionBindings, mapExpr)
 import Program (Gen, Program (..))
 
 import qualified Types
@@ -56,14 +57,16 @@ optimize =
   let
     dedup p = p { programBindings = deduplicateBindings $ programBindings p }
   in
-    -- Four optimization passes (read from back to front):
+    -- Five optimization passes (read from back to front):
     -- * Deduplicate (common subexpression eliminaton).
     -- * Rewrite expressions in place.
     -- * Replace usage of identity vars, introduced by deduplicate and by the
     --   previous pass, with their sources.
     -- * A final pass for optimizations that could not be done in-place because
     --   they need to generate new bindings, such as constant folding.
-    optimizeGen
+    -- * Dead code elimination.
+    eliminateDeadCode
+    . optimizeGen
     . eliminateIdExprs
     . rewriteExprs
     . eliminateIdExprs
@@ -207,3 +210,18 @@ eliminateIdExprs program =
       , programCondition = replace $ programCondition program
       , programYield = replace $ programYield program
       }
+
+eliminateDeadCode :: Program a b -> Program a b
+eliminateDeadCode program =
+  let
+    -- Remove unused bindings starting from two distinct roots: the yield
+    -- variable and the condition variable. Then union to get all live bindings.
+    -- It would be more efficient to do it in one pass, but the types make
+    -- passing a list of polymorphic seed variables a bit clumsy, so for now
+    -- this is easier.
+    bindings = programBindings program
+    aliveYield = removeUnusedBindings (programYield program) bindings
+    aliveCondition = removeUnusedBindings (programCondition program) bindings
+    alive = unionBindings aliveYield aliveCondition
+  in
+    program { programBindings = alive }
