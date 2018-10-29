@@ -13,10 +13,11 @@ program = Prog.genProgram (TagString ()) $ do
   b <- Prog.and =<< mapM Prog.const [TagBool True, TagBool True, TagBool False]
   true <- Prog.const $ TagBool True
   false <- Prog.const $ TagBool False
-  c <- Prog.or [b, true, false]
+  bb <- Prog.and [true, false, b]
+  c <- Prog.or [b, bb, false]
   d <- Prog.add =<< (a:) <$> mapM Prog.const [TagInt 0, TagInt 7]
   level <- Prog.loadField (Field $ TagInt "level")
-  levelLess <- Prog.less d level
+  levelLess <- Prog.less level d
   Prog.discardIf levelLess
   name <- Prog.loadField $ Field $ TagString "name"
   title <- Prog.loadField $ Field $ TagString "title"
