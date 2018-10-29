@@ -14,17 +14,21 @@ module Types
   , mapBindings
   , mapMBindings
   , deduplicateBindings
+  , removeUnusedBindings
   , mapExpr
   , unionBindings
   ) where
 
+import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.List (intercalate)
 import Data.IntMap.Strict (IntMap)
+import Data.IntSet (IntSet)
 import Prelude hiding (lookup)
 
 import qualified Control.Monad.Trans.State.Strict as State
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
 
 data Tag a b where
   TagInt    :: b -> Tag Int b
@@ -204,19 +208,22 @@ bind expr (Bindings i b) =
   in
     (Variable var, Bindings (1 + getTag var) (IntMap.insert i (erase expr) b))
 
+traverseExpr :: Applicative f => (forall b. t b -> f (u b)) -> Expr t a -> f (Expr u a)
+traverseExpr f expr = case expr of
+  Const value -> pure $ Const value
+  Id ref      -> Id <$> f ref
+  Not arg     -> Not <$> f arg
+  And args    -> And <$> traverse f args
+  Or args     -> Or <$> traverse f args
+  Concat args -> Concat <$> traverse f args
+  Add args    -> Add <$> traverse f args
+  Sub args    -> Sub <$> traverse f args
+  LoadString field -> pure $ LoadString field
+  EqString x y -> EqString <$> f x <*> f y
+  Select cond vtrue vfalse -> Select <$> f cond <*> f vtrue <*> f vfalse
+
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
-mapExpr f expr = case expr of
-  Const value -> Const value
-  Id ref      -> Id $ f ref
-  Not arg     -> Not $ f arg
-  And args    -> And $ fmap f args
-  Or args     -> Or $ fmap f args
-  Concat args -> Concat $ fmap f args
-  Add args    -> Add $ fmap f args
-  Sub args    -> Sub $ fmap f args
-  LoadString field -> LoadString field
-  EqString x y -> EqString (f x) (f y)
-  Select cond vtrue vfalse -> Select (f cond) (f vtrue) (f vfalse)
+mapExpr f = runIdentity . traverseExpr (Identity . f)
 
 data Deref t a where
   DefOpaque :: Deref t a
@@ -283,3 +290,24 @@ deduplicateBindings (Bindings n b) = Bindings n deduplicated
         Nothing -> do
           State.put $ Map.insert expr i exprs
           pure expr
+
+-- Remove all bindings that are not transitive dependencies of the given
+-- variable. Also known as "Dead Code Elimination".
+removeUnusedBindings :: Variable a -> Bindings -> Bindings
+removeUnusedBindings (Variable seed) (Bindings n bs) =
+  let
+    -- Traverse the dependency graph: start with an open set that contains the
+    -- seed and an empty closed set. Move one element from the open set to the
+    -- closed set while adding its dependencies to the open set. Recurse until
+    -- the open set is empty.
+    addVar (Variable k) = State.modify' (IntSet.insert (getTag k)) >> (pure $ Variable k)
+    addVars :: forall c. Expr Variable c -> IntSet -> IntSet
+    addVars expr = State.execState (traverseExpr addVar expr)
+    step closed open = case IntSet.maxView open of
+      Nothing -> closed
+      Just (i, remaining) -> step (IntSet.insert i closed) $ case IntMap.lookup i bs of
+        Nothing -> remaining
+        Just (Some (TaggedExpr texpr)) -> addVars (getTag texpr) remaining
+    usedVariables = step IntSet.empty $ IntSet.singleton $ getTag seed
+  in
+    Bindings n $ IntMap.restrictKeys bs usedVariables
