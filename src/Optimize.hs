@@ -43,6 +43,12 @@ pattern DAdd expr = DefExpr (Add expr)
 pattern DConcat :: [t String] -> Deref t String
 pattern DConcat expr = DefExpr (Concat expr)
 
+pattern DLess :: t Int -> t Int -> Deref t Bool
+pattern DLess x y = DefExpr (Less x y)
+
+pattern DGreaterEq :: t Int -> t Int -> Deref t Bool
+pattern DGreaterEq x y = DefExpr (GreaterEq x y)
+
 pattern VTrue :: Value Bool
 pattern VTrue = TagBool True
 
@@ -88,6 +94,8 @@ rewriteExpr deref expr = case expr of
   Not (deref -> DTrue) -> Const VFalse
   Not (deref -> DFalse) -> Const VTrue
   Not (deref -> DNot x) -> Id x
+  Not (deref -> DLess x y) -> GreaterEq x y
+  Not (deref -> DGreaterEq x y) -> Less x y
   And []  -> Const VTrue
   And [x] -> Id x
   And xs  -> rewriteAnd deref xs
