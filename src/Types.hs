@@ -7,6 +7,7 @@ module Types
   , Expr (..)
   , Bindings
   , Some (..)
+  , tagFromVariable
   , newBindings
   , bind
   , deref
@@ -16,6 +17,7 @@ module Types
   , deduplicateBindings
   , removeUnusedBindings
   , mapExpr
+  , traverseExpr
   , unionBindings
   ) where
 
@@ -67,6 +69,9 @@ getTagIndex tag = case tag of
 
 -- A variable is identified by its sequence number.
 newtype Variable a = Variable (Tag a Int)
+
+tagFromVariable :: Variable a -> Tag a ()
+tagFromVariable (Variable a) = fmap (const ()) a
 
 deriving instance Eq (Variable a)
 deriving instance Ord (Variable a)

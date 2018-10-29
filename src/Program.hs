@@ -3,6 +3,7 @@ module Program
   , Gen
   , genProgram
   , regenProgram
+  , sortProgram
   , add
   , and
   , const
@@ -72,7 +73,6 @@ instance Monad (Gen i) where
     in
       runGen (f v) state'
 
--- TODO: Make it generic over the input type.
 genProgram :: Tag a () -> Gen a (Variable b) -> Program a b
 genProgram inputTypeTag gen =
   let
@@ -121,6 +121,23 @@ regenProgram f program =
       , programCondition = genCondition finalState
       }
 
+-- Renumber variables so dependencies of a binding always have lower variable
+-- numbers than the consuming expression. This does not affect semantics, it is
+-- mostly for aethetic reasons.
+sortProgram :: forall a b. Program a b -> Program a b
+sortProgram program =
+  let
+    inputTag = Types.tagFromVariable $ programInput program
+    bindings = programBindings program
+    rebind :: forall c. Variable c -> Gen a (Variable c)
+    rebind var = case Types.deref bindings var of
+      DefOpaque -> pure var -- Only the input should be opaque.
+      DefExpr expr -> Types.traverseExpr rebind expr >>= define
+  in
+    genProgram inputTag $ do
+      rebind (programCondition program) >>= setCondition
+      rebind (programYield program)
+
 loadInput :: Gen i (Variable i)
 loadInput = Gen $ \state -> (genInput state, state)
 
@@ -140,10 +157,13 @@ derefInner :: Expr Variable a -> Gen i (Expr (Deref Variable) a)
 derefInner expr = Gen $ \state ->
   (Types.derefInner (genBindings state) expr, state)
 
+setCondition :: Variable Bool -> Gen i ()
+setCondition cond = Gen $ \state ->
+  ((), state { genCondition = cond })
+
 discardIf :: Variable Bool -> Gen i ()
 discardIf discardCond =
   let
-    setCondition cond = Gen $ \state -> ((), state { genCondition = cond })
     getCondition = Gen $ \state -> (genCondition state, state)
   in do
     oldCond <- getCondition

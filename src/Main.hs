@@ -43,17 +43,21 @@ program = Prog.genProgram (TagString ()) $ do
   Prog.discardIf concatWentWrong
   pure newName
 
-printUntilOptimized :: Program a b -> IO ()
+printUntilOptimized :: Program a b -> IO (Program a b)
 printUntilOptimized p = do
   putStrLn $ show p
   let optimized = optimize p
   if optimized == p
-    then putStrLn "\nReached fixed point, done."
+    then do
+      putStrLn "\nReached fixed point, done."
+      pure optimized
     else do
       void $ getLine
       putStrLn "After optimization step:\n"
       printUntilOptimized optimized
 
-
 main :: IO ()
-main = printUntilOptimized program
+main = do
+  optimized <- printUntilOptimized program
+  putStrLn "\nSorted:\n"
+  putStrLn $ show $ Prog.sortProgram optimized
