@@ -14,9 +14,12 @@ program = Prog.genProgram (TagString ()) $ do
   true <- Prog.const $ TagBool True
   false <- Prog.const $ TagBool False
   c <- Prog.or [b, true, false]
-  _d <- Prog.add =<< (a:) <$> mapM Prog.const [TagInt 0, TagInt 7]
-  name <- Prog.loadField (Field "name" :: Field String)
-  title <- Prog.loadField (Field "title" :: Field String)
+  d <- Prog.add =<< (a:) <$> mapM Prog.const [TagInt 0, TagInt 7]
+  level <- Prog.loadField (Field $ TagInt "level")
+  levelLess <- Prog.less d level
+  Prog.discardIf levelLess
+  name <- Prog.loadField $ Field $ TagString "name"
+  title <- Prog.loadField $ Field $ TagString "title"
   Prog.discardIf c
   space <- Prog.const $ TagString " "
   cat <- Prog.concat [name, space, title]
@@ -26,7 +29,7 @@ program = Prog.genProgram (TagString ()) $ do
   Prog.discardIf b
   false' <- Prog.not true
   Prog.discardIf false'
-  include <- Prog.loadField (Field "include" :: Field String)
+  include <- Prog.loadField $ Field $ TagString "include"
   shouldInclude <- Prog.eqString include strTrue
   shouldReject <- Prog.not shouldInclude
   Prog.discardIf shouldReject

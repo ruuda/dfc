@@ -169,8 +169,8 @@ concat = define . Concat
 add :: [Variable Int] -> Gen i (Variable Int)
 add = define . Add
 
-loadField :: Field String -> Gen i (Variable String)
-loadField = define . LoadString
+loadField :: Field a -> Gen i (Variable a)
+loadField = define . Load
 
 eqString :: Variable String -> Variable String -> Gen i (Variable Bool)
 eqString a b = define $ EqString a b

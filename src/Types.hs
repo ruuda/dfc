@@ -97,14 +97,13 @@ instance Show (Tag a a) where
         TagBool False -> "false"
 
 -- A named field.
-data Field a where
-  Field :: String -> Field a
+newtype Field a = Field (Tag a String)
 
 deriving instance Eq (Field a)
 deriving instance Ord (Field a)
 
 instance Show (Field a) where
-  show (Field name) = show name
+  show (Field name) = show (getTag name)
 
 data Expr t a where
   Const      :: Value a    -> Expr t a
@@ -115,7 +114,7 @@ data Expr t a where
   Concat     :: [t String] -> Expr t String
   Add        :: [t Int]    -> Expr t Int
   Sub        :: [t Int]    -> Expr t Int
-  LoadString :: Field String -> Expr t String
+  Load       :: Field a    -> Expr t a
   EqString   :: t String -> t String -> Expr t Bool
   Less       :: t Int -> t Int -> Expr t Bool
   Select     :: t Bool -> t a -> t a -> Expr t a
@@ -136,7 +135,7 @@ instance Show (Expr Variable a) where
       Concat args      -> display "concat" args
       Add args         -> display "add" args
       Sub args         -> display "sub" args
-      LoadString field -> display "load" [field]
+      Load field       -> display "load" [field]
       EqString x y     -> display "eq" [x, y]
       Less x y         -> display "lt" [x, y]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
@@ -194,7 +193,7 @@ tagExpr expr = case expr of
   Concat {}       -> TagString expr
   Add {}          -> TagInt expr
   Sub {}          -> TagInt expr
-  LoadString {}   -> TagString expr
+  Load (Field p)  -> fmap (const expr) p
   EqString {}     -> TagBool expr
   Less {}         -> TagBool expr
   Select _ (Variable vtrue) _ -> fmap (const expr) vtrue
@@ -221,7 +220,7 @@ traverseExpr f expr = case expr of
   Concat args -> Concat <$> traverse f args
   Add args    -> Add <$> traverse f args
   Sub args    -> Sub <$> traverse f args
-  LoadString field -> pure $ LoadString field
+  Load field  -> pure $ Load field
   EqString x y -> EqString <$> f x <*> f y
   Less x y     -> Less <$> f x <*> f y
   Select cond vtrue vfalse -> Select <$> f cond <*> f vtrue <*> f vfalse
