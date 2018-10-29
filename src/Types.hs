@@ -117,6 +117,7 @@ data Expr t a where
   Load       :: Field a    -> Expr t a
   EqString   :: t String -> t String -> Expr t Bool
   Less       :: t Int -> t Int -> Expr t Bool
+  GreaterEq  :: t Int -> t Int -> Expr t Bool
   Select     :: t Bool -> t a -> t a -> Expr t a
 
 deriving instance Eq a => Eq (Expr Variable a)
@@ -138,6 +139,7 @@ instance Show (Expr Variable a) where
       Load field       -> display "load" [field]
       EqString x y     -> display "eq" [x, y]
       Less x y         -> display "lt" [x, y]
+      GreaterEq x y    -> display "geq" [x, y]
       Select cond vtrue vfalse -> "select " ++ (show cond) ++ " " ++ (show vtrue) ++ " " ++ (show vfalse)
 
 data Some f = forall a. Some (f a)
@@ -196,6 +198,7 @@ tagExpr expr = case expr of
   Load (Field p)  -> fmap (const expr) p
   EqString {}     -> TagBool expr
   Less {}         -> TagBool expr
+  GreaterEq {}    -> TagBool expr
   Select _ (Variable vtrue) _ -> fmap (const expr) vtrue
 
 -- Erase the type tag from an expression, for storage in an IntMap.
@@ -212,17 +215,18 @@ bind expr (Bindings i b) =
 
 traverseExpr :: Applicative f => (forall b. t b -> f (u b)) -> Expr t a -> f (Expr u a)
 traverseExpr f expr = case expr of
-  Const value -> pure $ Const value
-  Id ref      -> Id <$> f ref
-  Not arg     -> Not <$> f arg
-  And args    -> And <$> traverse f args
-  Or args     -> Or <$> traverse f args
-  Concat args -> Concat <$> traverse f args
-  Add args    -> Add <$> traverse f args
-  Sub args    -> Sub <$> traverse f args
-  Load field  -> pure $ Load field
-  EqString x y -> EqString <$> f x <*> f y
-  Less x y     -> Less <$> f x <*> f y
+  Const value   -> pure $ Const value
+  Id ref        -> Id <$> f ref
+  Not arg       -> Not <$> f arg
+  And args      -> And <$> traverse f args
+  Or args       -> Or <$> traverse f args
+  Concat args   -> Concat <$> traverse f args
+  Add args      -> Add <$> traverse f args
+  Sub args      -> Sub <$> traverse f args
+  Load field    -> pure $ Load field
+  EqString x y  -> EqString <$> f x <*> f y
+  Less x y      -> Less <$> f x <*> f y
+  GreaterEq x y -> GreaterEq <$> f x <*> f y
   Select cond vtrue vfalse -> Select <$> f cond <*> f vtrue <*> f vfalse
 
 mapExpr :: (forall b. t b -> u b) -> Expr t a -> Expr u a
