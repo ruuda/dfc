@@ -19,6 +19,10 @@ module Types
   , mapExpr
   , traverseExpr
   , unionBindings
+  , Rebindings
+  , emptyRebindings
+  , rebind
+  , unrebind
   ) where
 
 import Data.Functor.Identity (Identity (..), runIdentity)
@@ -323,3 +327,31 @@ removeUnusedBindings (Variable seed) (Bindings n bs) =
     usedVariables = step IntSet.empty $ IntSet.singleton $ getTag seed
   in
     Bindings n $ IntMap.restrictKeys bs usedVariables
+
+-- Tracks mapping from old variable to new variable during rewrites.
+newtype Rebindings = Rebindings (IntMap (Some Variable))
+
+emptyRebindings :: Rebindings
+emptyRebindings = Rebindings IntMap.empty
+
+rebind :: Variable a -> Variable a -> Rebindings -> Rebindings
+rebind (Variable x) y (Rebindings b) =
+  Rebindings $ IntMap.insert (getTag x) (Some y) b
+
+-- TODO: This is duplication, and a hack, and not type safe.
+-- Find a better solution.
+unrebind :: Variable a -> Rebindings -> Maybe (Variable a)
+unrebind (Variable x) (Rebindings b) =
+  case x of
+    TagInt i -> case IntMap.lookup i b of
+      Just (Some (Variable (TagInt k))) -> Just (Variable (TagInt k))
+      Just _ -> error "Programming error: type mismatch on unrebind, expected int."
+      Nothing -> Nothing
+    TagString i -> case IntMap.lookup i b of
+      Just (Some (Variable (TagString k))) -> Just (Variable (TagString k))
+      Just _ -> error "Programming error: type mismatch on unrebind, expected string."
+      Nothing -> Nothing
+    TagBool i -> case IntMap.lookup i b of
+      Just (Some (Variable (TagBool k))) -> Just (Variable (TagBool k))
+      Just _ -> error "Programming error: type mismatch on unrebind, expected bool."
+      Nothing -> Nothing

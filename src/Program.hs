@@ -21,13 +21,16 @@ module Program
   , select
   ) where
 
-import Prelude hiding (and, concat, const, or, not)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (StateT)
 import Data.List (intercalate)
+import Prelude hiding (and, concat, const, or, not)
 
 import qualified Prelude
+import qualified Control.Monad.Trans.State.Strict as State
 
 import Types (Variable, Bindings, Tag (..), Deref (..), Expr (..), Field, Value,
-              newBindings, bind, unionBindings, mapMBindings)
+              newBindings, bind, unionBindings, mapMBindings, Rebindings)
 
 import qualified Types
 
@@ -129,14 +132,21 @@ sortProgram program =
   let
     inputTag = Types.tagFromVariable $ programInput program
     bindings = programBindings program
-    rebind :: forall c. Variable c -> Gen a (Variable c)
-    rebind var = case Types.deref bindings var of
-      DefOpaque -> pure var -- Only the input should be opaque.
-      DefExpr expr -> Types.traverseExpr rebind expr >>= define
-  in
-    genProgram inputTag $ do
-      rebind (programCondition program) >>= setCondition
+    rebind :: forall c. Variable c -> StateT Rebindings (Gen a) (Variable c)
+    rebind var = State.gets (Types.unrebind var) >>= \case
+      Just fwv -> pure fwv
+      Nothing  -> case Types.deref bindings var of
+        DefOpaque    -> pure var -- Only the input should be opaque.
+        DefExpr expr -> do
+          fwv <- Types.traverseExpr rebind expr >>= (lift . define)
+          State.modify' $ Types.rebind var fwv
+          pure fwv
+    rebindAll :: StateT Rebindings (Gen a) (Variable b)
+    rebindAll = do
+      rebind (programCondition program) >>= (lift . setCondition)
       rebind (programYield program)
+  in
+    genProgram inputTag $ State.evalStateT rebindAll Types.emptyRebindings
 
 loadInput :: Gen i (Variable i)
 loadInput = Gen $ \state -> (genInput state, state)
