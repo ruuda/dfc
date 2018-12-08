@@ -13,7 +13,7 @@ We need to infer the control flow from the dataflow. On the one hand to avoid
 doing useless work, but also for correctness: a conditional division that
 verifies that the denominator is nonzero, should not compile to a program that
 divides by zero anyway. Targeting a lazy language is simpler in this regard,
-because dependencies are tracked dynamically at truntime, rather than statically
+because dependencies are tracked dynamically at runtime, rather than statically
 at compile time. For example, if a value is only used conditionally, we should
 only compute it in the branch where it is used. In a lazy language we could get
 away with unconditionally producing a thunk, as it would only be forced inside
