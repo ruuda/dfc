@@ -1,6 +1,7 @@
 name: dfc
 version: 0.0.0
 synopsis: optimizing dataflow compiler
+license: Apache-2.0
 
 default-extensions:
   - ApplicativeDo
